@@ -59,6 +59,10 @@ Servo claw;
 boolean claw_state = false;
 
 
+long last_print = 0;
+boolean blink_on = false;
+
+
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
   digitalWrite(MOTORA_CTRL1, LOW);
@@ -151,32 +155,53 @@ void setup() {
   Serial.begin(9600);
   Serial2.begin(9600);
 
+  Serial << "Hello! I am Bowie!\n";
+
+/*
   promulgate.LOG_LEVEL = Promulgate::ERROR_;
   promulgate.set_rx_callback(received_action);
   promulgate.set_tx_callback(transmit_complete);
+*/
 
 
-
-  top.attach(4);
-  claw.attach(3);
+  //top.attach(4);
+  //claw.attach(3);
 
 
   
   // put your setup code here, to run once:
   motor_init();
-//  motor_setSpeed(0, 20);
-//  motor_setSpeed(1, 20);
-//  motor_setDir(0, MOTOR_DIR_FWD);
-//  motor_setDir(1, MOTOR_DIR_FWD);
+  motor_setSpeed(0, 255);
+  motor_setSpeed(1, 255);
+  motor_setDir(0, MOTOR_DIR_FWD);
+  motor_setDir(1, MOTOR_DIR_FWD);
 
   pinMode(SONAR_RIGHT, INPUT);
   pinMode(SONAR_LEFT, INPUT);
+
+  Serial.println("Hellooooooooooooooo");
 
   //initSensors();
   
 }
 
 void loop() {
+
+    motor_setSpeed(0, 255);
+  motor_setSpeed(1, 255);
+  motor_setDir(0, MOTOR_DIR_FWD);
+  motor_setDir(1, MOTOR_DIR_FWD);
+
+//  if(millis()-last_print >= 100) {
+//    Serial.print("~");
+//    if(blink_on) {
+//      digitalWrite(led, HIGH);
+//    } else {
+//      digitalWrite(led, LOW);
+//    }
+//    blink_on = !blink_on;
+//    last_print = millis();
+//  }
 
   //Serial.println(analogRead(SONAR_RIGHT));
   //delay(50);
@@ -193,8 +218,8 @@ void loop() {
 
   //delay(100);
   
-  sonar_reading_left = analogRead(SONAR_LEFT);
-  sonar_reading_right = analogRead(SONAR_RIGHT);
+  //sonar_reading_left = analogRead(SONAR_LEFT);
+  //sonar_reading_right = analogRead(SONAR_RIGHT);
 
   /*
   if(sonar_reading_left <= SONAR_THRESH || sonar_reading_right <= SONAR_THRESH) {
@@ -265,9 +290,9 @@ void mag_mode() {
   sensors_event_t mag_event;
   sensors_vec_t   orientation;
 
-  float dest = 160.0;
-  int the_speed = 255;
-  float thresh = 3.0;
+  float dest = 0.0;
+  int the_speed = 128;
+  float thresh = 5.0;
 
   /* Calculate the heading using the magnetometer */
   mag.getEvent(&mag_event);
@@ -276,7 +301,8 @@ void mag_mode() {
     /* 'orientation' should have valid .heading data now */
     Serial.print(F("Heading: "));
     Serial.print(orientation.heading);
-    Serial.print(F("; "));
+    Serial.print(F("; \n"));
+    delay(50);
   }
 
   if(orientation.heading < (dest-thresh)) {
