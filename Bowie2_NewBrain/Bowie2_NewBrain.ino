@@ -35,7 +35,9 @@ void transmit_complete();
 void received_action(char action, char cmd, uint8_t key, uint16_t val, char delim);
 
 int led = 13;
-int green_led = 21;
+int led_green = 21;
+int superbright_l = 20;
+int superbright_r = 3;
 
 // TB6612FNG motor test
 #define MOTORA_SPEED 23
@@ -80,6 +82,12 @@ boolean blink_on = false;
 boolean fwd_l = true;
 
 boolean autonomous = false;
+
+
+long last_rx = 0;
+
+int mag_error = 0;
+
 
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
@@ -165,6 +173,10 @@ void initSensors()
     Serial.println("Ooops, no BMP180 detected ... Check your wiring!");
     while(1);
   }
+
+  mag.enableAutoRange(true);
+  mag.setMagRate(LSM303_MAGRATE_30);
+  
 }
 
 
@@ -184,8 +196,11 @@ void setup() {
   pinMode(SONAR_RIGHT, INPUT);
   pinMode(SONAR_LEFT, INPUT);
 
-  pinMode(green_led, OUTPUT);
-  digitalWrite(green_led, HIGH);
+  pinMode(superbright_l, OUTPUT);
+  pinMode(superbright_r, OUTPUT);
+
+  pinMode(led_green, OUTPUT);
+  digitalWrite(led_green, HIGH);
 
   Serial.println("Hellooooooooooooooo");
 
@@ -286,7 +301,7 @@ void setup() {
 //}
 
   initSensors();
-  
+
 }
 
 void loop() {
@@ -311,7 +326,7 @@ void loop() {
   }
   */
 
-
+  mag_calibrate();
 
   mag_mode();
 
@@ -322,6 +337,20 @@ void loop() {
     Serial << c;
     if(c == '!') Serial << "\n";
   }
+
+
+/*
+  if(millis()-last_rx >= 500) {
+    digitalWrite(led_green, LOW);
+    leftBork();
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, 0);
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 0);
+  } else {
+    digitalWrite(led_green, HIGH);
+  }
+  */
 
   //delay(100);
 
@@ -354,7 +383,7 @@ void loop() {
 
 void mag_mode() {
 
-  sensors_event_t mag_event;
+  sensors_event_t event;
   sensors_vec_t   orientation;
 
   float dest = 360.0;
@@ -376,40 +405,57 @@ void mag_mode() {
     boundB = dest-thresh;
   }
 
-  
 
-  /* Calculate the heading using the magnetometer */
-  mag.getEvent(&mag_event);
-  if (dof.magGetOrientation(SENSOR_AXIS_Z, &mag_event, &orientation))
+
+  mag.getEvent(&event);
+
+  if(event.magnetic.x == 0.0 && event.magnetic.y == 0.0 && event.magnetic.z == 0.0) {
+    mag_error++;
+    return;
+  }
+
+  Serial.print("X: "); Serial.print(event.magnetic.x); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(event.magnetic.y); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(event.magnetic.z); Serial.print("  ");Serial.print("uT");
+  Serial.print(" & errors: "); Serial.print(mag_error); Serial.println();
+  
+  
+  if (dof.magGetOrientation(SENSOR_AXIS_Z, &event, &orientation))
   {
-    /* 'orientation' should have valid .heading data now */
     Serial.print(F("Heading: "));
     Serial.print(orientation.heading);
     Serial.print(F("; \n"));
-    delay(50);
   }
 
+  delay(50);
   
-
+  /*
   if(orientation.heading > boundA) { // go left
+    digitalWrite(superbright_l, LOW);
+    digitalWrite(superbright_r, HIGH);
     leftBork();
     motor_setDir(1, MOTOR_DIR_FWD);
     motor_setSpeed(1, the_speed);
     motor_setDir(0, MOTOR_DIR_FWD);
     motor_setSpeed(0, 60);//the_speed);
   } else if(orientation.heading < boundB) { // go right
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, LOW);
     leftBork();
     motor_setDir(1, MOTOR_DIR_FWD);
     motor_setSpeed(1, 60);//the_speed);
     motor_setDir(0, MOTOR_DIR_FWD);
     motor_setSpeed(0, the_speed);
   } else { // go straight
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
     leftBork();
     motor_setDir(1, MOTOR_DIR_FWD);
     motor_setSpeed(1, the_speed);
     motor_setDir(0, MOTOR_DIR_FWD);
     motor_setSpeed(0, the_speed);
   }
+  */
 
 
   /*
@@ -437,6 +483,170 @@ void mag_mode() {
 }
 
 
+
+
+void mag_calibrate() {
+
+  float mag_max[] = {0, 0, 0};
+  float mag_min[] = {0, 0, 0};
+  float mag_offset[] = {0, 0, 0};
+  boolean done = false;
+  int count = 0;
+  boolean skip = false;
+  boolean go_left = false;
+  mag_error = 0;
+
+  sensors_event_t event;
+  sensors_vec_t   orientation;
+
+
+  Serial.println("Get ready to calibrate in 10s... (will blink 5x)");
+  for(int i=0; i<5; i++) {
+    digitalWrite(superbright_l, LOW);
+    digitalWrite(superbright_r, LOW);
+    delay(1000);
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
+    delay(1000);
+  }
+
+
+  mag.getEvent(&event);
+
+  if(event.magnetic.x == 0.0 && event.magnetic.y == 0.0 && event.magnetic.z == 0.0) {
+    mag_error++;
+    return;
+  }
+
+  mag_min[0] = event.magnetic.x;
+  mag_min[1] = event.magnetic.y;
+  mag_min[2] = event.magnetic.z;
+
+  mag_max[0] = event.magnetic.x;
+  mag_max[1] = event.magnetic.y;
+  mag_max[2] = event.magnetic.z;
+
+
+  if(go_left) {
+    // go left
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 255);
+    motor_setDir(0, MOTOR_DIR_REV);
+    motor_setSpeed(0, 255);
+  } else {
+    // go right
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_REV);
+    motor_setSpeed(1, 255);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, 255);
+  }
+
+
+  while(count < 100) {
+
+    skip = false;
+    mag.getEvent(&event);
+
+    if(event.magnetic.x == 0.0 && event.magnetic.y == 0.0 && event.magnetic.z == 0.0) {
+      mag_error++;
+      skip = true;
+    }
+
+    if(!skip) {
+
+      if(event.magnetic.x < mag_min[0]) mag_min[0] = event.magnetic.x;
+      if(event.magnetic.y < mag_min[1]) mag_min[1] = event.magnetic.y;
+      if(event.magnetic.z < mag_min[2]) mag_min[2] = event.magnetic.z;
+  
+      if(event.magnetic.x > mag_max[0]) mag_max[0] = event.magnetic.x;
+      if(event.magnetic.y > mag_max[1]) mag_max[1] = event.magnetic.y;
+      if(event.magnetic.z > mag_max[2]) mag_max[2] = event.magnetic.z;
+  
+      Serial.print("X: "); Serial.print(event.magnetic.x); Serial.print("  ");
+      Serial.print("Y: "); Serial.print(event.magnetic.y); Serial.print("  ");
+      Serial.print("Z: "); Serial.print(event.magnetic.z); Serial.print("  ");Serial.print("uT");
+  
+      if (dof.magGetOrientation(SENSOR_AXIS_Z, &event, &orientation)) {
+        Serial.print("   Heading: ");
+        Serial.print(orientation.heading);
+        Serial.print("; \n");
+      }
+  
+      count++;
+      delay(100);
+
+    }
+    
+  }
+  
+
+  done = true;
+
+  // stop the motors
+  leftBork();
+  motor_setDir(1, MOTOR_DIR_FWD);
+  motor_setSpeed(1, 0);
+  motor_setDir(0, MOTOR_DIR_FWD);
+  motor_setSpeed(0, 0);
+
+  for(int i=0; i<3; i++) {
+    mag_offset[i] = (mag_min[i] + mag_max[i]) / 2;
+  }
+  
+  Serial.print("\n\n------------ RESULTS -------------\n");
+  
+  Serial.print("Min ");
+  Serial.print("X: "); Serial.print(mag_min[0]); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(mag_min[1]); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(mag_min[2]); Serial.print("  "); Serial.print("uT\n");
+
+  Serial.print("Max ");
+  Serial.print("X: "); Serial.print(mag_max[0]); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(mag_max[1]); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(mag_max[2]); Serial.print("  "); Serial.print("uT\n");
+
+  Serial.print("Offset ");
+  Serial.print("X: "); Serial.print(mag_offset[0]); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(mag_offset[1]); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(mag_offset[2]); Serial.print("  "); Serial.print("uT\n");
+
+  Serial.print("Num errors: "); Serial.print(mag_error); Serial.println("\n\n");
+
+
+  Serial.print("\n\n---------- RESULTS (csv) -----------\n");
+  Serial.println("Dir, Min X, Min Y, Min Z, Max X, Max Y, Max Z, Off X, Off Y, Off Z");
+  if(go_left) {
+    Serial.print("0");
+  } else {
+    Serial.print("1");
+  }
+  Serial.print(", ");
+  Serial.print(mag_min[0]); Serial.print(", ");
+  Serial.print(mag_min[1]); Serial.print(", ");
+  Serial.print(mag_min[2]); Serial.print(", ");
+
+  Serial.print(mag_max[0]); Serial.print(", ");
+  Serial.print(mag_max[1]); Serial.print(", ");
+  Serial.print(mag_max[2]); Serial.print(", ");
+
+  Serial.print(mag_offset[0]); Serial.print(", ");
+  Serial.print(mag_offset[1]); Serial.print(", ");
+  Serial.print(mag_offset[2]); 
+  Serial.println("\n");
+
+  
+  while(true) {
+    digitalWrite(superbright_l, LOW);
+    digitalWrite(superbright_r, LOW);
+    delay(500);
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
+    delay(500);
+  }
+
+}
 
 
 
@@ -517,6 +727,8 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
     Serial << "delim: " << delim << endl;
   }
 
+  last_rx = millis();
+
   if(action == '#') {
 
     if(cmd == 'L') { // left motor
@@ -550,27 +762,27 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
 
   if(action == '@') {
 
-//    if(cmd == 'L') { // left motor
-//      if(key == 1) { // fwd
-//        leftBork();
-//        motor_setDir(0, MOTOR_DIR_FWD);
-//        motor_setSpeed(0, val);
-//      } else if(key == 0) { // bwd
-//        leftBork();
-//        motor_setDir(0, MOTOR_DIR_REV);
-//        motor_setSpeed(0, val);
-//      }
-//    }
-//  
-//    if(cmd == 'R') { // right motor
-//      if(key == 1) { // fwd
-//        motor_setDir(1, MOTOR_DIR_FWD);
-//        motor_setSpeed(1, val);
-//      } else if(key == 0) { // bwd
-//        motor_setDir(1, MOTOR_DIR_REV);
-//        motor_setSpeed(1, val);
-//      }
-//    }
+    if(cmd == 'L') { // left motor
+      if(key == 1) { // fwd
+        leftBork();
+        motor_setDir(0, MOTOR_DIR_FWD);
+        motor_setSpeed(0, val);
+      } else if(key == 0) { // bwd
+        leftBork();
+        motor_setDir(0, MOTOR_DIR_REV);
+        motor_setSpeed(0, val);
+      }
+    }
+  
+    if(cmd == 'R') { // right motor
+      if(key == 1) { // fwd
+        motor_setDir(1, MOTOR_DIR_FWD);
+        motor_setSpeed(1, val);
+      } else if(key == 0) { // bwd
+        motor_setDir(1, MOTOR_DIR_REV);
+        motor_setSpeed(1, val);
+      }
+    }
 
   }
 
