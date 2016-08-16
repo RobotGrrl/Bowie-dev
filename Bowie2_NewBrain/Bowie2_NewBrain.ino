@@ -13,6 +13,7 @@
 #include <Adafruit_L3GD20_U.h>
 #include <Adafruit_10DOF.h>
 #include <Servo.h>
+#include <math.h>
 
 /* Assign a unique ID to the sensors */
 Adafruit_10DOF                dof   = Adafruit_10DOF();
@@ -87,6 +88,22 @@ boolean autonomous = false;
 long last_rx = 0;
 
 int mag_error = 0;
+int accel_error = 0;
+// last calibrated on aug 12
+float hardiron_x = 11.74;
+float hardiron_y = 0.39;
+float hardiron_z = -45.25;
+
+
+long last_dest_change = 0;
+int dest_state = 0;
+
+
+int straight_counter = 0;
+int turn_counter = 0;
+long last_straight_add = 0;
+long last_turn_add = 0;
+int go_state = 1;
 
 
 void motor_init() {
@@ -326,9 +343,11 @@ void loop() {
   }
   */
 
-  mag_calibrate();
+  //mag_calibrate();
 
-  mag_mode();
+  //angle_diff_test();
+
+  mag_mode2();
 
   
   if(Serial2.available()) {
@@ -375,6 +394,370 @@ void loop() {
   }
   */
   
+  
+}
+
+
+
+
+
+
+
+
+void angle_diff_test() {
+
+  float dest = 345.0;
+  float heading = 0.0;
+  
+  for(int i=0; i<360; i+=5) {
+    heading = i;
+    int diff = (int)dest - (int)heading;
+    diff = (diff + 180) % 360 - 180;
+    if(heading > (dest+180)) diff = 360+diff;
+    Serial.print("heading: "); Serial.print(heading);
+    Serial.print(" dest: "); Serial.print(dest);
+    Serial.print(" diff: "); Serial.print(diff);
+    Serial.print("\n");
+    delay(100);
+  }
+
+  
+}
+
+
+
+
+void mag_mode3() {
+
+  sensors_event_t event_accl;
+  sensors_event_t event_magn;
+
+  accel.getEvent(&event_accl);
+  mag.getEvent(&event_magn);
+
+  if(event_magn.magnetic.x == 0.0 && event_magn.magnetic.y == 0.0 && event_magn.magnetic.z == 0.0) {
+    mag_error++;
+    return;
+  }
+
+  if(event_accl.acceleration.x == 0.0 && event_accl.acceleration.y == 0.0 && event_accl.acceleration.z == 0.0) {
+    accel_error++;
+    return;
+  }
+  
+  // code based on snippet from this page
+  // http://srlm.io/2014/09/16/experimenting-with-magnetometer-calibration/
+ 
+  // Signs choosen so that, when axis is down, the value is + 1g
+  float accl_x = -event_accl.acceleration.x;
+  float accl_y = event_accl.acceleration.y;
+  float accl_z = event_accl.acceleration.z;
+   
+  // Signs should be choosen so that, when the axis is down, the value is + positive.
+  // But that doesn't seem to work ?...
+  float magn_x = event_magn.magnetic.x - hardiron_x;
+  float magn_y = -event_magn.magnetic.y - hardiron_y;
+  float magn_z = -event_magn.magnetic.z - hardiron_z;
+
+
+  // code from adafruit 10DOF library
+  // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
+  float heading = (float)atan2(magn_y, magn_x) * 180 / PI;
+  
+  if (heading < 0) {
+    heading = 360 + heading;
+  }
+
+
+//  Serial.print(" x: "); Serial.print(event_magn.magnetic.x);
+//  Serial.print(" y: "); Serial.print(event_magn.magnetic.y);
+//  Serial.print(" z: "); Serial.print(event_magn.magnetic.z);
+
+//  Serial.print(" magn_x: "); Serial.print(magn_x);
+//  Serial.print(" magn_y: "); Serial.print(magn_y);
+//  Serial.print(" magn_z: "); Serial.print(magn_z);
+
+  float dest = 30.0;
+  int the_speed = 255;
+  float thresh = 15.0;
+  float boundA = 888.0;
+  float boundB = 888.0;
+
+
+  if(millis()-last_dest_change >= 5000) {
+    dest_state++;
+    if(dest_state > 3) dest_state = 0;
+    
+    last_dest_change = millis();
+  }
+
+  switch(dest_state) {
+      case 0:
+        dest = 15.0;
+        break;
+      case 1:
+        dest = 105.0;
+        break;
+      case 2:
+        dest = 195.0;
+        break;
+      case 3:
+        dest = 285.0;
+        break;
+    }
+
+
+  //float diff = (float)atan2(sin(heading-dest), cos(heading-dest)) * 180 / PI;
+
+  int diff = (int)dest - (int)heading; // todo: check if conversion to int is floor?
+  diff = (diff + 180) % 360 - 180;
+  if(heading > (dest+180)) diff = 360+diff;
+
+  Serial.print(" Heading: "); Serial.print(heading);
+  Serial.print(" Dest: "); Serial.print(dest);
+  Serial.print(" Diff "); Serial.print(diff);
+  Serial.print(" ");
+
+
+  if(abs(diff) > thresh) { // go left
+    Serial.print("L ");
+    digitalWrite(superbright_l, LOW);
+    digitalWrite(superbright_r, HIGH);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, 60);//the_speed);
+  } else if(abs(diff) < thresh) { // go right
+    Serial.print("R ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, LOW);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 60);//the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+  } else { // go straight
+    Serial.print("S ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+  }
+  
+  //Serial.print(" Heading: "); Serial.print(heading);
+  //Serial.print(" mag errors: "); Serial.print(mag_error);
+  //Serial.print(" accel errors: "); Serial.print(accel_error);
+  Serial.print("\n");
+  //delay(250);
+  
+}
+
+
+
+
+void mag_mode2() {
+
+  sensors_event_t event_accl;
+  sensors_event_t event_magn;
+
+  accel.getEvent(&event_accl);
+  mag.getEvent(&event_magn);
+
+  if(event_magn.magnetic.x == 0.0 && event_magn.magnetic.y == 0.0 && event_magn.magnetic.z == 0.0) {
+    mag_error++;
+    return;
+  }
+
+  if(event_accl.acceleration.x == 0.0 && event_accl.acceleration.y == 0.0 && event_accl.acceleration.z == 0.0) {
+    accel_error++;
+    return;
+  }
+  
+  // code based on snippet from this page
+  // http://srlm.io/2014/09/16/experimenting-with-magnetometer-calibration/
+ 
+  // Signs choosen so that, when axis is down, the value is + 1g
+  float accl_x = -event_accl.acceleration.x;
+  float accl_y = event_accl.acceleration.y;
+  float accl_z = event_accl.acceleration.z;
+   
+  // Signs should be choosen so that, when the axis is down, the value is + positive.
+  // But that doesn't seem to work ?...
+  float magn_x = event_magn.magnetic.x - hardiron_x;
+  float magn_y = -event_magn.magnetic.y - hardiron_y;
+  float magn_z = -event_magn.magnetic.z - hardiron_z;
+
+
+  // code from adafruit 10DOF library
+  // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
+  float heading = (float)atan2(magn_y, magn_x) * 180 / PI;
+  
+  if (heading < 0) {
+    heading = 360 + heading;
+  }
+
+
+  Serial.print(" x: "); Serial.print(event_magn.magnetic.x);
+  Serial.print(" y: "); Serial.print(event_magn.magnetic.y);
+  Serial.print(" z: "); Serial.print(event_magn.magnetic.z);
+
+  Serial.print(" magn_x: "); Serial.print(magn_x);
+  Serial.print(" magn_y: "); Serial.print(magn_y);
+  Serial.print(" magn_z: "); Serial.print(magn_z);
+
+  float dest = 10.0;
+  int the_speed = 255;
+  float thresh = 25.0;
+  float boundA = 888.0;
+  float boundB = 888.0;
+
+
+  if(millis()-last_dest_change >= 5000) {
+    dest_state++;
+    if(dest_state > 3) dest_state = 0;
+    
+    last_dest_change = millis();
+  }
+
+  switch(dest_state) {
+      case 0:
+        dest = 15.0;
+        break;
+      case 1:
+        dest = 105.0;
+        break;
+      case 2:
+        dest = 195.0;
+        break;
+      case 3:
+        dest = 285.0;
+        break;
+    }
+
+  if(dest+thresh > 360) {
+    boundA = (dest+thresh)-360.0;
+  } else {
+    boundA = dest+thresh;
+  }
+
+  if(dest-thresh < 0.0) {
+    boundB = 360.0-(thresh-dest);
+  } else {
+    boundB = dest-thresh;
+  }
+
+  //float diff = (float)atan2(sin(heading-dest), cos(heading-dest)) * 180 / PI;
+
+  int diff = (int)dest - (int)heading; // todo: check if conversion to int is floor?
+  diff = (diff + 180) % 360 - 180;
+  if(heading > (dest+180)) diff = 360+diff;
+
+  Serial.print(" Heading: "); Serial.print(heading);
+  Serial.print(" Dest: "); Serial.print(dest);
+  Serial.print(" Diff "); Serial.print(diff);
+  //Serial.print(" bound A: "); Serial.print(boundA);
+  //Serial.print(" bound B: "); Serial.print(boundB);
+  Serial.print(" ");
+
+  /*
+  if(heading > boundA) { // go left
+    Serial.print("L ");
+    digitalWrite(superbright_l, LOW);
+    digitalWrite(superbright_r, HIGH);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, 60);//the_speed);
+  } else if(heading < boundB) { // go right
+    Serial.print("R ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, LOW);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 60);//the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+  } else { // go straight
+    Serial.print("S ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+  }
+  */
+
+  if(abs(diff) < thresh) { // go straight
+    straight_counter++;
+    last_straight_add = millis();
+  } else { // turn left
+    turn_counter++;
+    last_turn_add = millis();
+  }
+
+  if(millis()-last_straight_add >= 2000) {
+    straight_counter = 0;
+  }
+
+  if(millis()-last_turn_add >= 2000) {
+    turn_counter = 0;
+  }
+
+  if(straight_counter >= 5) {
+    straight_counter = 0;
+    go_state = 0;
+  }
+
+  if(turn_counter >= 5) {
+    turn_counter = 0;
+    go_state = 1;
+  }
+
+  switch(go_state) {
+    case 0: // straight
+    Serial.print("S ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, HIGH);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+    break;
+    case 1: // left
+    Serial.print("R ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, LOW);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 60);//the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+    break;
+    case 2: // right
+    Serial.print("R ");
+    digitalWrite(superbright_l, HIGH);
+    digitalWrite(superbright_r, LOW);
+    leftBork();
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, 60);//the_speed);
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, the_speed);
+    break;
+  }
+  
+  //Serial.print(" Heading: "); Serial.print(heading);
+  //Serial.print(" mag errors: "); Serial.print(mag_error);
+  //Serial.print(" accel errors: "); Serial.print(accel_error);
+  Serial.print("\n");
+  delay(250);
   
 }
 
