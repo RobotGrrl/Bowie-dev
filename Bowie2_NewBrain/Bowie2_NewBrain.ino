@@ -100,11 +100,20 @@ int dest_state = 0;
 
 
 int straight_counter = 0;
-int turn_counter = 0;
 long last_straight_add = 0;
+int turn_counter = 0;
 long last_turn_add = 0;
+int left_counter = 0;
+long last_left_add = 0;
+int right_counter = 0;
+long last_right_add = 0;
 int go_state = 1;
-
+int straight_tick = 0;
+long staight_start = 0;
+boolean locked = true;
+boolean locked_dir = false;
+boolean on_heading = false;
+long heading_start = 0;
 
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
@@ -347,7 +356,47 @@ void loop() {
 
   //angle_diff_test();
 
-  mag_mode2();
+  //mag_mode2();
+
+
+  /*
+
+  if(on_heading) {
+    if(millis()-heading_start >= 5000 && heading_start != 0) {
+      Serial.print("\nCHANGE IN DESTINATION ");
+      Serial.print(" current: ");
+      Serial.print(millis());
+      Serial.print(" diff: ");
+      Serial.print(millis()-heading_start);
+      Serial.print("\n");
+      dest_state++;
+      if(dest_state > 3) dest_state = 0;
+      heading_start = 0;
+    }
+  }
+
+
+  switch(dest_state) {
+      case 0: 
+        followHeading(15.0, 1);
+        break;
+      case 1:
+        followHeading(105.0, 1);
+        break;
+      case 2:
+        followHeading(195.0, 1);
+        break;
+      case 3:
+        followHeading(285.0, 1);
+        break;
+    }
+
+    */
+
+
+    followHeading(90.0, 99);
+  
+
 
   
   if(Serial2.available()) {
@@ -427,137 +476,6 @@ void angle_diff_test() {
 
 
 
-void mag_mode3() {
-
-  sensors_event_t event_accl;
-  sensors_event_t event_magn;
-
-  accel.getEvent(&event_accl);
-  mag.getEvent(&event_magn);
-
-  if(event_magn.magnetic.x == 0.0 && event_magn.magnetic.y == 0.0 && event_magn.magnetic.z == 0.0) {
-    mag_error++;
-    return;
-  }
-
-  if(event_accl.acceleration.x == 0.0 && event_accl.acceleration.y == 0.0 && event_accl.acceleration.z == 0.0) {
-    accel_error++;
-    return;
-  }
-  
-  // code based on snippet from this page
-  // http://srlm.io/2014/09/16/experimenting-with-magnetometer-calibration/
- 
-  // Signs choosen so that, when axis is down, the value is + 1g
-  float accl_x = -event_accl.acceleration.x;
-  float accl_y = event_accl.acceleration.y;
-  float accl_z = event_accl.acceleration.z;
-   
-  // Signs should be choosen so that, when the axis is down, the value is + positive.
-  // But that doesn't seem to work ?...
-  float magn_x = event_magn.magnetic.x - hardiron_x;
-  float magn_y = -event_magn.magnetic.y - hardiron_y;
-  float magn_z = -event_magn.magnetic.z - hardiron_z;
-
-
-  // code from adafruit 10DOF library
-  // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
-  float heading = (float)atan2(magn_y, magn_x) * 180 / PI;
-  
-  if (heading < 0) {
-    heading = 360 + heading;
-  }
-
-
-//  Serial.print(" x: "); Serial.print(event_magn.magnetic.x);
-//  Serial.print(" y: "); Serial.print(event_magn.magnetic.y);
-//  Serial.print(" z: "); Serial.print(event_magn.magnetic.z);
-
-//  Serial.print(" magn_x: "); Serial.print(magn_x);
-//  Serial.print(" magn_y: "); Serial.print(magn_y);
-//  Serial.print(" magn_z: "); Serial.print(magn_z);
-
-  float dest = 30.0;
-  int the_speed = 255;
-  float thresh = 15.0;
-  float boundA = 888.0;
-  float boundB = 888.0;
-
-
-  if(millis()-last_dest_change >= 5000) {
-    dest_state++;
-    if(dest_state > 3) dest_state = 0;
-    
-    last_dest_change = millis();
-  }
-
-  switch(dest_state) {
-      case 0:
-        dest = 15.0;
-        break;
-      case 1:
-        dest = 105.0;
-        break;
-      case 2:
-        dest = 195.0;
-        break;
-      case 3:
-        dest = 285.0;
-        break;
-    }
-
-
-  //float diff = (float)atan2(sin(heading-dest), cos(heading-dest)) * 180 / PI;
-
-  int diff = (int)dest - (int)heading; // todo: check if conversion to int is floor?
-  diff = (diff + 180) % 360 - 180;
-  if(heading > (dest+180)) diff = 360+diff;
-
-  Serial.print(" Heading: "); Serial.print(heading);
-  Serial.print(" Dest: "); Serial.print(dest);
-  Serial.print(" Diff "); Serial.print(diff);
-  Serial.print(" ");
-
-
-  if(abs(diff) > thresh) { // go left
-    Serial.print("L ");
-    digitalWrite(superbright_l, LOW);
-    digitalWrite(superbright_r, HIGH);
-    leftBork();
-    motor_setDir(1, MOTOR_DIR_FWD);
-    motor_setSpeed(1, the_speed);
-    motor_setDir(0, MOTOR_DIR_FWD);
-    motor_setSpeed(0, 60);//the_speed);
-  } else if(abs(diff) < thresh) { // go right
-    Serial.print("R ");
-    digitalWrite(superbright_l, HIGH);
-    digitalWrite(superbright_r, LOW);
-    leftBork();
-    motor_setDir(1, MOTOR_DIR_FWD);
-    motor_setSpeed(1, 60);//the_speed);
-    motor_setDir(0, MOTOR_DIR_FWD);
-    motor_setSpeed(0, the_speed);
-  } else { // go straight
-    Serial.print("S ");
-    digitalWrite(superbright_l, HIGH);
-    digitalWrite(superbright_r, HIGH);
-    leftBork();
-    motor_setDir(1, MOTOR_DIR_FWD);
-    motor_setSpeed(1, the_speed);
-    motor_setDir(0, MOTOR_DIR_FWD);
-    motor_setSpeed(0, the_speed);
-  }
-  
-  //Serial.print(" Heading: "); Serial.print(heading);
-  //Serial.print(" mag errors: "); Serial.print(mag_error);
-  //Serial.print(" accel errors: "); Serial.print(accel_error);
-  Serial.print("\n");
-  //delay(250);
-  
-}
-
-
-
 
 void mag_mode2() {
 
@@ -615,13 +533,27 @@ void mag_mode2() {
   float boundA = 888.0;
   float boundB = 888.0;
 
-
+  /*
   if(millis()-last_dest_change >= 5000) {
     dest_state++;
     if(dest_state > 3) dest_state = 0;
     
     last_dest_change = millis();
   }
+  */
+
+
+  //if(go_state == 0) {
+    if(millis()-staight_start >= 5000 && locked == true) {
+    //if(straight_tick >= 10) {
+      Serial.print("\nyipee");
+      locked = false;
+      straight_counter = 0;
+      dest_state++;
+      if(dest_state > 3) dest_state = 0;
+      straight_tick = 0;
+    }
+  //}
 
   switch(dest_state) {
       case 0:
@@ -637,6 +569,9 @@ void mag_mode2() {
         dest = 285.0;
         break;
     }
+
+  // temp - go in a straight line
+  //dest = 15.0;
 
   if(dest+thresh > 360) {
     boundA = (dest+thresh)-360.0;
@@ -702,7 +637,7 @@ void mag_mode2() {
     last_turn_add = millis();
   }
 
-  if(millis()-last_straight_add >= 2000) {
+  if(millis()-last_straight_add >= 2000                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ) {
     straight_counter = 0;
   }
 
@@ -712,10 +647,13 @@ void mag_mode2() {
 
   if(straight_counter >= 5) {
     straight_counter = 0;
+    // if we weren't going straight before, then this is the start
+    if(go_state != 0) staight_start = millis();
+    locked = true;
     go_state = 0;
   }
 
-  if(turn_counter >= 5) {
+  if(turn_counter >= 5) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
     turn_counter = 0;
     go_state = 1;
   }
@@ -730,6 +668,8 @@ void mag_mode2() {
     motor_setSpeed(1, the_speed);
     motor_setDir(0, MOTOR_DIR_FWD);
     motor_setSpeed(0, the_speed);
+    Serial.print("s"); Serial.print(straight_tick);
+    //straight_tick++;
     break;
     case 1: // left
     Serial.print("R ");
