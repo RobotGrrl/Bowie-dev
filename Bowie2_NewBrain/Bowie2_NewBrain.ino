@@ -115,6 +115,13 @@ boolean locked_dir = false;
 boolean on_heading = false;
 long heading_start = 0;
 
+String lat_buf = "";
+String lon_buf = "";
+float lat_current = 0.0;
+float lon_current = 0.0;
+int reading_state = 0;
+long last_gps_receive = 0;
+
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
   digitalWrite(MOTORA_CTRL1, LOW);
@@ -212,6 +219,7 @@ void setup() {
   
   Serial.begin(9600);
   Serial2.begin(9600);
+  Serial3.begin(9600);
 
   Serial << "Hello! I am Bowie!\n";
 
@@ -328,6 +336,9 @@ void setup() {
 
   initSensors();
 
+  Serial.print("hi");
+  Serial << "hi";
+
 }
 
 void loop() {
@@ -394,7 +405,7 @@ void loop() {
     */
 
 
-    followHeading(90.0, 99);
+    //followHeading(90.0, 99);
   
 
 
@@ -404,6 +415,46 @@ void loop() {
     promulgate.organize_message(c);
     Serial << c;
     if(c == '!') Serial << "\n";
+  }
+
+  if(Serial3.available()) {
+    char c = Serial3.read();
+    //Serial << c;
+    if(c == 'A') {
+      //Serial << " a ";
+      reading_state = 1;
+    } else if(c == 'B') {
+      //Serial << " b ";
+      reading_state = 2;
+    } else if(c == ',') {
+      //Serial << " blorp ";
+      reading_state = 0;
+    } else if(c == '\n') {
+      //Serial << " ting ";
+      reading_state = 0;
+      lat_current = lat_buf.toFloat();
+      lon_current = lon_buf.toFloat();
+      lat_buf = "";
+      lon_buf = "";
+      Serial.print("Current lat: ");
+      Serial.print(lat_current, 6);
+      Serial.print(" Current lon: ");
+      Serial.print(lon_current, 6);
+      Serial.println();
+    }
+
+    if(reading_state == 1) {
+      if(c != 'A' && c != ',') lat_buf += c;
+    } else if(reading_state == 2) {
+      if(c != 'B' && c != '\n') lon_buf += c;
+    }
+
+    last_gps_receive = millis();
+  
+  }
+
+  if(millis()-last_gps_receive >= 2000 && last_gps_receive != 0) {
+    Serial.print(F("!!! Haven't received anything from GPS in > 2s\n"));
   }
 
 
@@ -420,7 +471,8 @@ void loop() {
   }
   */
 
-  //delay(100);
+  //Serial << "~";
+  delay(100);
 
   /*
   sonar_reading_left = analogRead(SONAR_LEFT);
