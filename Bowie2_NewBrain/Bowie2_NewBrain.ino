@@ -233,6 +233,10 @@ void setup() {
   pinMode(superbright_l, OUTPUT);
   pinMode(superbright_r, OUTPUT);
 
+  //digitalWrite(superbright_l, HIGH);
+  //digitalWrite(superbright_r, HIGH);
+
+
   pinMode(led_green, OUTPUT);
   digitalWrite(led_green, HIGH);
 
@@ -249,6 +253,9 @@ void setup() {
   
   
   motor_init();
+
+  lat_buf.reserve(32);
+  lon_buf.reserve(32);
 
   
 //  while(1<3) {
@@ -370,8 +377,8 @@ void loop() {
   //mag_mode2();
 
 
+  
   /*
-
   if(on_heading) {
     if(millis()-heading_start >= 5000 && heading_start != 0) {
       Serial.print("\nCHANGE IN DESTINATION ");
@@ -401,9 +408,8 @@ void loop() {
         followHeading(285.0, 1);
         break;
     }
-
     */
-
+    
 
     //followHeading(90.0, 99);
   
@@ -417,7 +423,8 @@ void loop() {
     if(c == '!') Serial << "\n";
   }
 
-  if(Serial3.available()) {
+
+  while(Serial3.available()) {
     char c = Serial3.read();
     //Serial << c;
     if(c == 'A') {
@@ -429,24 +436,26 @@ void loop() {
     } else if(c == ',') {
       //Serial << " blorp ";
       reading_state = 0;
-    } else if(c == '\n') {
+    } else if(c == ';') {
       //Serial << " ting ";
       reading_state = 0;
       lat_current = lat_buf.toFloat();
       lon_current = lon_buf.toFloat();
       lat_buf = "";
       lon_buf = "";
+      
       Serial.print("Current lat: ");
       Serial.print(lat_current, 6);
       Serial.print(" Current lon: ");
       Serial.print(lon_current, 6);
       Serial.println();
+      
     }
 
     if(reading_state == 1) {
       if(c != 'A' && c != ',') lat_buf += c;
     } else if(reading_state == 2) {
-      if(c != 'B' && c != '\n') lon_buf += c;
+      if(c != 'B' && c != ';') lon_buf += c;
     }
 
     last_gps_receive = millis();
@@ -456,6 +465,15 @@ void loop() {
   if(millis()-last_gps_receive >= 2000 && last_gps_receive != 0) {
     Serial.print(F("!!! Haven't received anything from GPS in > 2s\n"));
   }
+
+
+  double woot = distanceBetween(lat_current, lon_current, 43.661248, -79.390938);
+  Serial.print("Distance between: ");
+  Serial.print(woot);
+  Serial.print("\n");
+
+ // 12
+  // 11
 
 
 /*
