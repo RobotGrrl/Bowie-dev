@@ -121,6 +121,15 @@ float lat_current = 0.0;
 float lon_current = 0.0;
 int reading_state = 0;
 long last_gps_receive = 0;
+int gps_receives = 0;
+
+
+double goal_thresh = 5.0;
+double goal_distance;
+double goal_heading;
+
+
+
 
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
@@ -208,7 +217,7 @@ void initSensors()
   }
 
   mag.enableAutoRange(true);
-  mag.setMagRate(LSM303_MAGRATE_30);
+  //mag.setMagRate(LSM303_MAGRATE_30);
   
 }
 
@@ -370,6 +379,9 @@ void loop() {
   }
   */
 
+
+
+
   //mag_calibrate();
 
   //angle_diff_test();
@@ -424,6 +436,7 @@ void loop() {
   }
 
 
+  // ----- GPS MODE ----- //
   while(Serial3.available()) {
     char c = Serial3.read();
     //Serial << c;
@@ -443,12 +456,33 @@ void loop() {
       lon_current = lon_buf.toFloat();
       lat_buf = "";
       lon_buf = "";
-      
-      Serial.print("Current lat: ");
+      gps_receives++;
+  
+      Serial.print("Current lat & lon: ");
       Serial.print(lat_current, 6);
-      Serial.print(" Current lon: ");
+      Serial.print(", ");
       Serial.print(lon_current, 6);
       Serial.println();
+
+      if(gps_receives > 2) {
+
+        gps_receives = 3; // so this int doesn't overflow...
+      
+        goal_distance = distanceBetween(lat_current, lon_current, 43.664757, -79.392616);
+        Serial.print("Distance between: ");
+        Serial.print(goal_distance);
+        //Serial.print("\n");
+  
+        goal_heading = courseTo(lat_current, lon_current, 43.664757, -79.392616);
+        Serial.print(" Course to: ");
+        Serial.print(goal_heading);
+        //Serial.print("\n");
+  
+        Serial.print(" Current heading: ");
+        Serial.print(getCurrentHeading());
+        Serial.print("\n\n");
+
+      }
       
     }
 
@@ -462,18 +496,40 @@ void loop() {
   
   }
 
-  if(millis()-last_gps_receive >= 2000 && last_gps_receive != 0) {
-    Serial.print(F("!!! Haven't received anything from GPS in > 2s\n"));
+  if(millis()-last_gps_receive >= 3000 && last_gps_receive != 0) {
+    Serial.print(F("!!! Haven't received anything from GPS in > 3s\n"));
   }
 
 
-  double woot = distanceBetween(lat_current, lon_current, 43.661248, -79.390938);
-  Serial.print("Distance between: ");
-  Serial.print(woot);
-  Serial.print("\n");
 
- // 12
-  // 11
+
+  // ------- go to gps coord ---------
+
+  if(gps_receives > 2) {
+    if(goal_distance > goal_thresh) {
+      followHeading(goal_heading, 99);
+    } else {
+      Serial.print("Bowie has arrived at the coordinates!");
+      leftBork();
+      motor_setDir(1, MOTOR_DIR_FWD);
+      motor_setSpeed(1, 0);
+      motor_setDir(0, MOTOR_DIR_FWD);
+      motor_setSpeed(0, 0);
+      for(int i=0; i<2; i++) {
+        digitalWrite(superbright_l, HIGH);
+        digitalWrite(superbright_r, HIGH);
+        delay(100);
+        digitalWrite(superbright_l, LOW);
+        digitalWrite(superbright_r, LOW);
+        delay(100);
+      }
+    }
+  }
+
+
+  
+
+  //double woot2 = courseTo(lat_current, lon_current, 
 
 
 /*
@@ -490,7 +546,7 @@ void loop() {
   */
 
   //Serial << "~";
-  delay(100);
+  //delay(100);
 
   /*
   sonar_reading_left = analogRead(SONAR_LEFT);
@@ -1126,13 +1182,13 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
 
     if(cmd == 'L') { // left motor
       if(key == 1) { // fwd
-        Serial << "A" << endl;
+        digitalWrite(superbright_l, HIGH);
         leftBork();
         motor_setDir(0, MOTOR_DIR_FWD);
         motor_setSpeed(0, val);
         fwd_l = true;
       } else if(key == 0) { // bwd
-        Serial << "B" << endl;
+        digitalWrite(superbright_l, LOW);
         leftBork();
         motor_setDir(0, MOTOR_DIR_REV);
         motor_setSpeed(0, val);
@@ -1141,11 +1197,11 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
   
     if(cmd == 'R') { // right motor
       if(key == 1) { // fwd
-        Serial << "C" << endl;
+        digitalWrite(superbright_r, HIGH);
         motor_setDir(1, MOTOR_DIR_FWD);
         motor_setSpeed(1, val);   
       } else if(key == 0) { // bwd
-        Serial << "D" << endl;
+        digitalWrite(superbright_r, LOW);
         motor_setDir(1, MOTOR_DIR_REV);
         motor_setSpeed(1, val);
       }
@@ -1157,10 +1213,12 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
 
     if(cmd == 'L') { // left motor
       if(key == 1) { // fwd
+        digitalWrite(superbright_l, HIGH);
         leftBork();
         motor_setDir(0, MOTOR_DIR_FWD);
         motor_setSpeed(0, val);
       } else if(key == 0) { // bwd
+        digitalWrite(superbright_l, LOW);
         leftBork();
         motor_setDir(0, MOTOR_DIR_REV);
         motor_setSpeed(0, val);
@@ -1169,9 +1227,11 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
   
     if(cmd == 'R') { // right motor
       if(key == 1) { // fwd
+        digitalWrite(superbright_r, HIGH);
         motor_setDir(1, MOTOR_DIR_FWD);
         motor_setSpeed(1, val);
       } else if(key == 0) { // bwd
+        digitalWrite(superbright_r, LOW);
         motor_setDir(1, MOTOR_DIR_REV);
         motor_setSpeed(1, val);
       }

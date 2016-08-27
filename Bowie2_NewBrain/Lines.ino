@@ -1,43 +1,9 @@
 void followHeading(float dest, int dir) {
 
-  sensors_event_t event_accl;
-  sensors_event_t event_magn;
+  float heading = getCurrentHeading();
+  if(heading == 999.99) return;
 
-  accel.getEvent(&event_accl);
-  mag.getEvent(&event_magn);
-
-  if(event_magn.magnetic.x == 0.0 && event_magn.magnetic.y == 0.0 && event_magn.magnetic.z == 0.0) {
-    mag_error++;
-    return;
-  }
-
-  if(event_accl.acceleration.x == 0.0 && event_accl.acceleration.y == 0.0 && event_accl.acceleration.z == 0.0) {
-    accel_error++;
-    return;
-  }
-  
-  // code based on snippet from this page
-  // http://srlm.io/2014/09/16/experimenting-with-magnetometer-calibration/
- 
-  // Signs choosen so that, when axis is down, the value is + 1g
-  float accl_x = -event_accl.acceleration.x;
-  float accl_y = event_accl.acceleration.y;
-  float accl_z = event_accl.acceleration.z;
-   
-  // Signs should be choosen so that, when the axis is down, the value is + positive.
-  // But that doesn't seem to work ?...
-  float magn_x = event_magn.magnetic.x - hardiron_x;
-  float magn_y = -event_magn.magnetic.y - hardiron_y;
-  float magn_z = -event_magn.magnetic.z - hardiron_z;
-
-
-  // code from adafruit 10DOF library
-  // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
-  float heading = (float)atan2(magn_y, magn_x) * 180 / PI;
-  
-  if (heading < 0) {
-    heading = 360 + heading;
-  }
+  bool PRINT = false;
 
   /*
   Serial.print(" x: "); Serial.print(event_magn.magnetic.x);
@@ -60,11 +26,14 @@ void followHeading(float dest, int dir) {
   diff = (diff + 180) % 360 - 180;
   if(heading > (dest+180)) diff = 360+diff;
 
-  Serial.print(" Heading: "); Serial.print(heading);
-  Serial.print(" Dest: "); Serial.print(dest);
-  Serial.print(" Diff "); Serial.print(diff);
-  Serial.print(" ");
-
+  if(PRINT) Serial.print(" Heading: ");
+  if(PRINT) Serial.print(heading);
+  if(PRINT) Serial.print(" Dest: ");
+  if(PRINT) Serial.print(dest);
+  if(PRINT) Serial.print(" Diff ");
+  if(PRINT) Serial.print(diff);
+  if(PRINT) Serial.print(" ");
+  
   
   if(abs(diff) < thresh) { // go straight
     straight_counter++;
@@ -98,9 +67,9 @@ void followHeading(float dest, int dir) {
     straight_counter = 0;
     if(go_state != 0) {
       heading_start = millis();
-      Serial.print("\nHeading start: ");
-      Serial.print(heading_start);
-      Serial.print("\n");
+      if(PRINT) Serial.print("\nHeading start: ");
+      if(PRINT) Serial.print(heading_start);
+      if(PRINT) Serial.print("\n");
     }
     go_state = 0;
     locked_dir = false;
@@ -143,7 +112,7 @@ void followHeading(float dest, int dir) {
 
   switch(go_state) {
     case 0: // straight
-    Serial.print("S ");
+    if(PRINT) Serial.print("S ");
     digitalWrite(superbright_l, HIGH);
     digitalWrite(superbright_r, HIGH);
     leftBork();
@@ -153,7 +122,7 @@ void followHeading(float dest, int dir) {
     motor_setSpeed(0, the_speed);
     break;
     case 1: // left
-    Serial.print("L ");
+    if(PRINT) Serial.print("L ");
     digitalWrite(superbright_l, HIGH);
     digitalWrite(superbright_r, LOW);
     leftBork();
@@ -163,7 +132,7 @@ void followHeading(float dest, int dir) {
     motor_setSpeed(0, the_speed);
     break;
     case 2: // right
-    Serial.print("R ");
+    if(PRINT) Serial.print("R ");
     digitalWrite(superbright_l, LOW);
     digitalWrite(superbright_r, HIGH);
     leftBork();
@@ -177,8 +146,53 @@ void followHeading(float dest, int dir) {
   //Serial.print(" Heading: "); Serial.print(heading);
   //Serial.print(" mag errors: "); Serial.print(mag_error);
   //Serial.print(" accel errors: "); Serial.print(accel_error);
-  Serial.print("\n");
-  delay(250);
+  if(PRINT) Serial.print("\n");
+  //delay(250);
   
 }
+
+float getCurrentHeading() {
+  sensors_event_t event_accl;
+  sensors_event_t event_magn;
+
+  accel.getEvent(&event_accl);
+  mag.getEvent(&event_magn);
+
+  if(event_magn.magnetic.x == 0.0 && event_magn.magnetic.y == 0.0 && event_magn.magnetic.z == 0.0) {
+    mag_error++;
+    return 999.99;
+  }
+
+  if(event_accl.acceleration.x == 0.0 && event_accl.acceleration.y == 0.0 && event_accl.acceleration.z == 0.0) {
+    accel_error++;
+    return 999.99;
+  }
+  
+  // code based on snippet from this page
+  // http://srlm.io/2014/09/16/experimenting-with-magnetometer-calibration/
+ 
+  // Signs choosen so that, when axis is down, the value is + 1g
+  float accl_x = -event_accl.acceleration.x;
+  float accl_y = event_accl.acceleration.y;
+  float accl_z = event_accl.acceleration.z;
+   
+  // Signs should be choosen so that, when the axis is down, the value is + positive.
+  // But that doesn't seem to work ?...
+  float magn_x = event_magn.magnetic.x - hardiron_x;
+  float magn_y = -event_magn.magnetic.y - hardiron_y;
+  float magn_z = -event_magn.magnetic.z - hardiron_z;
+
+
+  // code from adafruit 10DOF library
+  // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
+  float heading = (float)atan2(magn_y, magn_x) * 180 / PI;
+
+  if (heading < 0) {
+    heading = 360 + heading;
+  }
+  
+  return heading;
+}
+
+
 
