@@ -124,12 +124,20 @@ long last_gps_receive = 0;
 int gps_receives = 0;
 
 
-double goal_thresh = 5.0;
+double goal_thresh = 1.0;
 double goal_distance;
 double goal_heading;
 
 
+long timer_change = 0;
 
+
+int REMOTE_OP_STATE = 1;
+int HEADING_STATE = 2;
+int GPS_STATE = 3;
+int TESTING_STATE = 4;
+
+int STATE = HEADING_STATE;
 
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
@@ -352,19 +360,11 @@ void setup() {
 
   initSensors();
 
-  Serial.print("hi");
-  Serial << "hi";
+  Serial.print(F("Let's go! Nom nom nom"));
 
 }
 
 void loop() {
-
-  /*
-  motor_setSpeed(0, 255);
-  motor_setSpeed(1, 255);
-  motor_setDir(0, MOTOR_DIR_FWD);
-  motor_setDir(1, MOTOR_DIR_FWD);
-  */
 
   /*
   if(millis()-last_print >= 100) {
@@ -379,171 +379,187 @@ void loop() {
   }
   */
 
+  if(STATE == TESTING_STATE) {
 
-
-
-  //mag_calibrate();
-
-  //angle_diff_test();
-
-  //mag_mode2();
-
-
+    //mag_calibrate();
   
-  /*
-  if(on_heading) {
-    if(millis()-heading_start >= 5000 && heading_start != 0) {
-      Serial.print("\nCHANGE IN DESTINATION ");
-      Serial.print(" current: ");
-      Serial.print(millis());
-      Serial.print(" diff: ");
-      Serial.print(millis()-heading_start);
-      Serial.print("\n");
-      dest_state++;
-      if(dest_state > 3) dest_state = 0;
-      heading_start = 0;
-    }
+    //angle_diff_test();
+  
+    //mag_mode2();
+  
+    //getCurrentHeading();
+    //delay(500);
+
+    followHeading(255.0, 1);
+    //delay(100);
+
   }
 
+  
+  if(STATE == HEADING_STATE) {
 
-  switch(dest_state) {
-      case 0: 
-        followHeading(15.0, 1);
-        break;
-      case 1:
-        followHeading(105.0, 1);
-        break;
-      case 2:
-        followHeading(195.0, 1);
-        break;
-      case 3:
-        followHeading(285.0, 1);
-        break;
+    if(millis()-timer_change >= (30*1000)) {
+      dest_state++;
+      if(dest_state > 3) dest_state = 0;
+      timer_change = millis();
+    }
+
+    /*
+    if(on_heading) {
+      if(millis()-heading_start >= (10*1000) && heading_start != 0) {
+        Serial.print("\nCHANGE IN DESTINATION ");
+        Serial.print(" current: ");
+        Serial.print(millis());
+        Serial.print(" diff: ");
+        Serial.print(millis()-heading_start);
+        Serial.print("\n");
+        dest_state++;
+        if(dest_state > 3) dest_state = 0;
+        heading_start = 0;
+      }
     }
     */
+  
+    switch(dest_state) {
+        case 0: 
+          followHeading(45.0, 1);
+          break;
+        case 1:
+          followHeading(135.0, 1);
+          break;
+        case 2:
+          followHeading(225.0, 1);
+          break;
+        case 3:
+          followHeading(315.0, 1);
+          break;
+      }
+      
+  }
+  
+
+
+  if(STATE == REMOTE_OP_STATE) {
     
-
-    //followHeading(90.0, 99);
+    if(Serial2.available()) {
+      char c = Serial2.read();
+      promulgate.organize_message(c);
+      Serial << c;
+      if(c == '!') Serial << "\n";
+    }
   
+    if(millis()-last_rx >= 500) {
+      digitalWrite(led_green, LOW);
+      leftBork();
+      motor_setDir(0, MOTOR_DIR_FWD);
+      motor_setSpeed(0, 0);
+      motor_setDir(1, MOTOR_DIR_FWD);
+      motor_setSpeed(1, 0);
+    } else {
+      digitalWrite(led_green, HIGH);
+    }
 
-
-  
-  if(Serial2.available()) {
-    char c = Serial2.read();
-    promulgate.organize_message(c);
-    Serial << c;
-    if(c == '!') Serial << "\n";
   }
 
 
   // ----- GPS MODE ----- //
-  while(Serial3.available()) {
-    char c = Serial3.read();
-    //Serial << c;
-    if(c == 'A') {
-      //Serial << " a ";
-      reading_state = 1;
-    } else if(c == 'B') {
-      //Serial << " b ";
-      reading_state = 2;
-    } else if(c == ',') {
-      //Serial << " blorp ";
-      reading_state = 0;
-    } else if(c == ';') {
-      //Serial << " ting ";
-      reading_state = 0;
-      lat_current = lat_buf.toFloat();
-      lon_current = lon_buf.toFloat();
-      lat_buf = "";
-      lon_buf = "";
-      gps_receives++;
-  
-      Serial.print("Current lat & lon: ");
-      Serial.print(lat_current, 6);
-      Serial.print(", ");
-      Serial.print(lon_current, 6);
-      Serial.println();
 
-      if(gps_receives > 2) {
-
-        gps_receives = 3; // so this int doesn't overflow...
-      
-        goal_distance = distanceBetween(lat_current, lon_current, 43.664757, -79.392616);
-        Serial.print("Distance between: ");
-        Serial.print(goal_distance);
-        //Serial.print("\n");
+  if(STATE == GPS_STATE) {
+    
+    while(Serial3.available()) {
+      char c = Serial3.read();
+      //Serial << c;
+      if(c == 'A') {
+        //Serial << " a ";
+        reading_state = 1;
+      } else if(c == 'B') {
+        //Serial << " b ";
+        reading_state = 2;
+      } else if(c == ',') {
+        //Serial << " blorp ";
+        reading_state = 0;
+      } else if(c == ';') {
+        //Serial << " ting ";
+        reading_state = 0;
+        lat_current = lat_buf.toFloat();
+        lon_current = lon_buf.toFloat();
+        lat_buf = "";
+        lon_buf = "";
+        gps_receives++;
+    
+        Serial.print("Current lat & lon: ");
+        Serial.print(lat_current, 6);
+        Serial.print(", ");
+        Serial.print(lon_current, 6);
+        Serial.println();
   
-        goal_heading = courseTo(lat_current, lon_current, 43.664757, -79.392616);
-        Serial.print(" Course to: ");
-        Serial.print(goal_heading);
-        //Serial.print("\n");
+        if(gps_receives > 2) {
   
-        Serial.print(" Current heading: ");
-        Serial.print(getCurrentHeading());
-        Serial.print("\n\n");
-
+          gps_receives = 3; // so this int doesn't overflow...
+        
+          goal_distance = distanceBetween(lat_current, lon_current, 43.636806, -79.343826);
+          Serial.print("Distance between: ");
+          Serial.print(goal_distance);
+          //Serial.print("\n");
+    
+          goal_heading = courseTo(lat_current, lon_current, 43.636806, -79.343826);
+          Serial.print(" Course to: ");
+          Serial.print(goal_heading);
+          //Serial.print("\n");
+    
+          Serial.print(" Current heading: ");
+          Serial.print(getCurrentHeading());
+          Serial.print("\n\n");
+  
+        }
+        
       }
-      
-    }
-
-    if(reading_state == 1) {
-      if(c != 'A' && c != ',') lat_buf += c;
-    } else if(reading_state == 2) {
-      if(c != 'B' && c != ';') lon_buf += c;
-    }
-
-    last_gps_receive = millis();
   
-  }
-
-  if(millis()-last_gps_receive >= 3000 && last_gps_receive != 0) {
-    Serial.print(F("!!! Haven't received anything from GPS in > 3s\n"));
-  }
-
-
-
-
-  // ------- go to gps coord ---------
-
-  if(gps_receives > 2) {
-    if(goal_distance > goal_thresh) {
-      followHeading(goal_heading, 99);
-    } else {
-      Serial.print("Bowie has arrived at the coordinates!");
-      leftBork();
-      motor_setDir(1, MOTOR_DIR_FWD);
-      motor_setSpeed(1, 0);
-      motor_setDir(0, MOTOR_DIR_FWD);
-      motor_setSpeed(0, 0);
-      for(int i=0; i<2; i++) {
-        digitalWrite(superbright_l, HIGH);
-        digitalWrite(superbright_r, HIGH);
-        delay(100);
-        digitalWrite(superbright_l, LOW);
-        digitalWrite(superbright_r, LOW);
-        delay(100);
+      if(reading_state == 1) {
+        if(c != 'A' && c != ',') lat_buf += c;
+      } else if(reading_state == 2) {
+        if(c != 'B' && c != ';') lon_buf += c;
+      }
+  
+      last_gps_receive = millis();
+    
+    }
+  
+    if(millis()-last_gps_receive >= 3000 && last_gps_receive != 0) {
+      Serial.print(F("!!! Haven't received anything from GPS in > 3s\n"));
+    }
+  
+  
+    // ------- go to gps coord ---------
+  
+    if(gps_receives > 2) {
+      if(goal_distance > goal_thresh) {
+        // GO GO GO!!
+        followHeading(goal_heading, 99);
+      } else {
+        Serial.print("Bowie has arrived at the coordinates!");
+        leftBork();
+        motor_setDir(1, MOTOR_DIR_FWD);
+        motor_setSpeed(1, 0);
+        motor_setDir(0, MOTOR_DIR_FWD);
+        motor_setSpeed(0, 0);
+        for(int i=0; i<2; i++) {
+          digitalWrite(superbright_l, HIGH);
+          digitalWrite(superbright_r, HIGH);
+          delay(100);
+          digitalWrite(superbright_l, LOW);
+          digitalWrite(superbright_r, LOW);
+          delay(100);
+        }
       }
     }
-  }
 
+  }
 
   
 
-  //double woot2 = courseTo(lat_current, lon_current, 
+  
 
-
-/*
-  if(millis()-last_rx >= 500) {
-    digitalWrite(led_green, LOW);
-    leftBork();
-    motor_setDir(0, MOTOR_DIR_FWD);
-    motor_setSpeed(0, 0);
-    motor_setDir(1, MOTOR_DIR_FWD);
-    motor_setSpeed(1, 0);
-  } else {
-    digitalWrite(led_green, HIGH);
-  }
-  */
 
   //Serial << "~";
   //delay(100);

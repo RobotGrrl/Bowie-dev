@@ -3,7 +3,7 @@ void followHeading(float dest, int dir) {
   float heading = getCurrentHeading();
   if(heading == 999.99) return;
 
-  bool PRINT = false;
+  bool PRINT = true;
 
   /*
   Serial.print(" x: "); Serial.print(event_magn.magnetic.x);
@@ -16,7 +16,7 @@ void followHeading(float dest, int dir) {
   */
 
   int the_speed = 255;
-  float thresh = 15.0;
+  float thresh = 30.0;
 
   // why wasn't this working reliably?
   //float diff = (float)atan2(sin(heading-dest), cos(heading-dest)) * 180 / PI;
@@ -34,7 +34,7 @@ void followHeading(float dest, int dir) {
   if(PRINT) Serial.print(diff);
   if(PRINT) Serial.print(" ");
   
-  
+  /*
   if(abs(diff) < thresh) { // go straight
     straight_counter++;
     last_straight_add = millis();
@@ -49,17 +49,62 @@ void followHeading(float dest, int dir) {
       last_right_add = millis();
     }
   }
+  */
+
+  float diff_half = ((float)diff)/2;
+  float thresh_half = ((float)thresh)/2;
+
+  //Serial << "\n diff half: " << diff_half << " thresh half: " << thresh_half << endl;
+  delay(100);
+
+  Serial << "\n";
+
+  if(diff > 0 && float(abs(diff)) > thresh_half) {
+    Serial << "turn left\n";
+    if(!locked_dir) {
+      left_counter++;
+      last_left_add = millis();
+    }
+  } else if(diff < 0 && float(abs(diff)) > thresh_half) {
+    Serial << "turn right\n"; 
+    if(!locked_dir) {
+      right_counter++;
+      last_right_add = millis();
+    }
+  } else {
+    Serial << "go fwd\n";
+    straight_counter++;
+    last_straight_add = millis();
+  }
+
+  
+  /*
+  if(diff_half > thresh_half) { // turn left
+    if(!locked_dir) {
+      left_counter++;
+      last_left_add = millis();
+    }
+  } else if(diff_half < thresh_half) { // turn right
+    if(!locked_dir) {
+      right_counter++;
+      last_right_add = millis();
+    }
+  } else { // go straight
+    straight_counter++;
+    last_straight_add = millis();
+  }
+  */
   
   
-  if(millis()-last_straight_add >= 2000) {     
+  if(millis()-last_straight_add >= 1000) {     
     straight_counter = 0;
   }
 
-  if(millis()-last_left_add >= 2000) {
+  if(millis()-last_left_add >= 1000) {
     left_counter = 0;
   }
 
-  if(millis()-last_right_add >= 2000) {
+  if(millis()-last_right_add >= 1000) {
     right_counter = 0;
   }
 
@@ -76,7 +121,7 @@ void followHeading(float dest, int dir) {
   }
 
   if(left_counter >= 5) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
-    right_counter = 0;
+    left_counter = 0;
     go_state = 1;
     locked_dir = true;
   }
@@ -151,7 +196,55 @@ void followHeading(float dest, int dir) {
   
 }
 
+
 float getCurrentHeading() {
+
+  float yaw = 0.0;
+
+  sensors_event_t accel_event;
+  sensors_event_t mag_event;
+  sensors_vec_t   orientation;
+
+  /* Read the accelerometer and magnetometer */
+  accel.getEvent(&accel_event);
+  mag.getEvent(&mag_event);
+
+  if(mag_event.magnetic.x == 0.0 && mag_event.magnetic.y == 0.0 && mag_event.magnetic.z == 0.0) {
+    mag_error++;
+    return 999.99;
+  }
+
+  if(accel_event.acceleration.x == 0.0 && accel_event.acceleration.y == 0.0 && accel_event.acceleration.z == 0.0) {
+    accel_error++;
+    return 999.99;
+  }
+
+  /* Use the new fusionGetOrientation function to merge accel/mag data */  
+  if (dof.fusionGetOrientation(&accel_event, &mag_event, &orientation))
+  {
+    /* 'orientation' should have valid .roll and .pitch fields */
+    //Serial.print(F("Orientation: "));
+    //Serial.print(orientation.roll);
+    //Serial.print(F(" "));
+    //Serial.print(orientation.pitch);
+    //Serial.print(F(" "));
+
+    yaw = orientation.heading;
+    yaw -= 45; // set 0 to north
+    if(yaw < 0) yaw += 360.0;
+    //Serial.println(yaw);
+    //delay(100);
+  }
+
+  return yaw;
+  
+}
+
+
+
+
+
+float getCurrentHeading_OLD() {
   sensors_event_t event_accl;
   sensors_event_t event_magn;
 
@@ -175,13 +268,31 @@ float getCurrentHeading() {
   float accl_x = -event_accl.acceleration.x;
   float accl_y = event_accl.acceleration.y;
   float accl_z = event_accl.acceleration.z;
-   
+
   // Signs should be choosen so that, when the axis is down, the value is + positive.
   // But that doesn't seem to work ?...
   float magn_x = event_magn.magnetic.x - hardiron_x;
   float magn_y = -event_magn.magnetic.y - hardiron_y;
   float magn_z = -event_magn.magnetic.z - hardiron_z;
 
+
+  float roll = 0.0;
+  float pitch = 0.0;
+  float yaw = 0.0;
+
+
+  // Freescale solution
+  roll = atan2(accl_y, accl_z);
+  pitch = atan(-accl_x / (accl_y * sin(roll) + accl_z * cos(roll)));
+   
+  float magn_fy_fs = magn_z * sin(roll) - magn_y*cos(roll);
+  float magn_fx_fs = magn_x * cos(pitch) + magn_y * sin(pitch) * sin(roll) + magn_z * sin(pitch) * cos(roll);
+   
+  yaw = atan2(magn_fy_fs, magn_fx_fs);
+   
+  roll = roll * (180/PI);
+  pitch = pitch * (180/PI);
+  yaw = yaw * (180/PI);
 
   // code from adafruit 10DOF library
   // Adafruit_10DOF::magGetOrientation with SENSOR_AXIS_Z
@@ -190,8 +301,18 @@ float getCurrentHeading() {
   if (heading < 0) {
     heading = 360 + heading;
   }
+
+  if(yaw < 0) yaw = 360 + yaw;
+
+  /*
+  Serial.print(" Yaw: ");
+  Serial.print(yaw);
+  Serial.print(" Prev:");
+  Serial.print(heading);
+  Serial.print("\n");
+  */
   
-  return heading;
+  return yaw;
 }
 
 

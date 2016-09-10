@@ -42,7 +42,8 @@ double courseTo(double lat1, double long1, double lat2, double long2) {
   {
     a2 += TWO_PI;
   }
-  a2 += PI/2; // this is off by 90 deg for our sensor
+  a2 += PI/2; // this is off by 90 deg for our sensor (prev)
+  a2 += PI; // an additional 180 deg with the yaw calculation
   return degrees(a2);
 }
 
