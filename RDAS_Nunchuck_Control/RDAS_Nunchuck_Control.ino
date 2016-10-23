@@ -17,6 +17,19 @@
  * 
  *  Erin RobotGrrl
  *  Jan. 25, 2016
+ *  
+ *  buttons
+ *  red: brown 8
+ *  green: red 7
+ *  yellow: orange 6
+ *  blue: yellow 5
+ *  white: green 4
+ *  
+ *  leds
+ *  1: white A3
+ *  2: grey A2
+ *  3: purple A1
+ *  4: blue A0
  * 
  */
 
@@ -25,6 +38,8 @@
 #include <SoftwareSerial.h>
 #include <Streaming.h>
 #include "Promulgate.h"
+#include <Bounce2.h>
+#include <XBee.h>
 
 boolean DEBUG = false;
 boolean MYO_MODE = false;
@@ -56,11 +71,45 @@ long claw_time = 0;
 int read_speed = 0;
 int read_dir = 0;
 
+#define REDBUTTON 8
+#define GREENBUTTON 7
+#define YELLOWBUTTON 6
+#define BLUEBUTTON 5
+#define WHITEBUTTON 4
+
+#define LED1 A3
+#define LED2 A2
+#define LED3 A1
+#define LED4 A0
+
+#define DEBOUNCE 10
+
+Bounce redbouncer = Bounce();//(REDBUTTON, DEBOUNCE);
+Bounce greenbouncer = Bounce();//(GREENBUTTON, DEBOUNCE);
+Bounce yellowbouncer = Bounce();//(YELLOWBUTTON, DEBOUNCE);
+Bounce bluebouncer = Bounce();//(BLUEBUTTON, DEBOUNCE);
+Bounce whitebouncer = Bounce();//(WHITEBUTTON, DEBOUNCE);
+
+// ------ Xbee variables
+XBee xbee = XBee();
+XBeeAddress64 addr64 = XBeeAddress64(0x00000000, 0x0000ffff);
+XBeeAddress64 addr_controller = XBeeAddress64(0x0013A200, 0x40DD9902);
+XBeeAddress64 addr_robot = XBeeAddress64(0x0013A200, 0x40D96FC2);
+ZBTxStatusResponse txStatus = ZBTxStatusResponse();
+ZBRxResponse rx = ZBRxResponse();
+char message_tx[64];
+char message_rx[64];
+uint32_t msg_tx_count = 0;
+uint32_t msg_rx_count = 0;
+uint32_t msg_tx_err = 0;
+
 
 
 void setup() {
   Serial.begin(9600);
   mySerial.begin(9600);
+  xbee.begin(mySerial);
+  
   Serial.println("Bowie Nunchuck Control");
   
   promulgate.LOG_LEVEL = Promulgate::ERROR_;
@@ -68,6 +117,66 @@ void setup() {
   promulgate.set_tx_callback(transmit_complete);
 
   pinMode(led, OUTPUT);
+
+  pinMode(REDBUTTON, INPUT);
+  pinMode(GREENBUTTON, INPUT);
+  pinMode(YELLOWBUTTON, INPUT);
+  pinMode(BLUEBUTTON, INPUT);
+  pinMode(WHITEBUTTON, INPUT);
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  pinMode(LED4, OUTPUT);
+
+  redbouncer.attach(REDBUTTON);
+  redbouncer.interval(DEBOUNCE);
+
+  greenbouncer.attach(GREENBUTTON);
+  greenbouncer.interval(DEBOUNCE);
+
+  yellowbouncer.attach(YELLOWBUTTON);
+  yellowbouncer.interval(DEBOUNCE);
+
+  bluebouncer.attach(BLUEBUTTON);
+  bluebouncer.interval(DEBOUNCE);
+
+  whitebouncer.attach(WHITEBUTTON);
+  whitebouncer.interval(DEBOUNCE);
+
+/*
+  while(1<3) {
+
+//    digitalWrite(LED1, HIGH);
+//    digitalWrite(LED2, HIGH);
+//    digitalWrite(LED3, HIGH);
+//    digitalWrite(LED4, HIGH);
+//    delay(500);
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    digitalWrite(LED3, LOW);
+    digitalWrite(LED4, LOW);
+    //delay(500);
+    
+    redbouncer.update();
+    greenbouncer.update();
+    yellowbouncer.update();
+    bluebouncer.update();
+    whitebouncer.update();
+
+    if(redbouncer.read() == HIGH) digitalWrite(LED1, HIGH);
+    if(greenbouncer.read() == HIGH) digitalWrite(LED2, HIGH);
+    if(yellowbouncer.read() == HIGH) digitalWrite(LED3, HIGH);
+    if(bluebouncer.read() == HIGH) digitalWrite(LED4, HIGH);
+    if(whitebouncer.read() == HIGH) {
+      digitalWrite(LED1, HIGH);
+      digitalWrite(LED2, HIGH);
+      digitalWrite(LED3, HIGH);
+      digitalWrite(LED4, HIGH);
+    }
+    
+  }
+  */
+  
   nunchuk.init();
 }
 
@@ -119,18 +228,24 @@ void loop() {
        && nunchuk.analogX >= (home_x-10) && nunchuk.analogX <= (home_x+10)) {
       
       // stand still
-      promulgate.transmit_action('#', 'L', 1, 0, '!');
-      promulgate.transmit_action('#', 'R', 1, 0, '!');
+      xbeeSend('#', 'L', 1, 0, '!');
+      xbeeSend('#', 'R', 1, 0, '!');
+      //promulgate.transmit_action('#', 'L', 1, 0, '!');
+      //promulgate.transmit_action('#', 'R', 1, 0, '!');
       
     } else if(nunchuk.analogY >= (home_y-10) && nunchuk.analogY <= (home_y+10)) { // turning
       
       if(nunchuk.analogX >= (min_x+10)) {
-        promulgate.transmit_action('@', 'L', 0, 255, '!');
-        promulgate.transmit_action('@', 'R', 1, 255, '!');
+        xbeeSend('@', 'L', 0, 255, '!');
+        xbeeSend('@', 'R', 1, 255, '!');
+        //promulgate.transmit_action('@', 'L', 0, 255, '!');
+        //promulgate.transmit_action('@', 'R', 1, 255, '!');
       }
       if(nunchuk.analogX <= (max_x-10)) {
-        promulgate.transmit_action('@', 'L', 1, 255, '!');
-        promulgate.transmit_action('@', 'R', 0, 255, '!');
+        xbeeSend('@', 'L', 1, 255, '!');
+        xbeeSend('@', 'R', 0, 255, '!');
+        //promulgate.transmit_action('@', 'L', 1, 255, '!');
+        //promulgate.transmit_action('@', 'R', 0, 255, '!');
       }
       
     } else if(nunchuk.analogY >= home_y) { // fwd
@@ -160,11 +275,15 @@ void loop() {
       
       // sending the data
       if(motor_dir) {
-        promulgate.transmit_action('#', 'L', 1, motor_speed, '!');
-        promulgate.transmit_action('#', 'R', 1, motor_speed, '!');
+        xbeeSend('#', 'L', 1, motor_speed, '!');
+        xbeeSend('#', 'R', 1, motor_speed, '!');
+        //promulgate.transmit_action('#', 'L', 1, motor_speed, '!');
+        //promulgate.transmit_action('#', 'R', 1, motor_speed, '!');
       } else {
-        promulgate.transmit_action('#', 'L', 0, motor_speed, '!');
-        promulgate.transmit_action('#', 'R', 0, motor_speed, '!');
+        xbeeSend('#', 'L', 0, motor_speed, '!');
+        xbeeSend('#', 'R', 0, motor_speed, '!');
+        //promulgate.transmit_action('#', 'L', 0, motor_speed, '!');
+        //promulgate.transmit_action('#', 'R', 0, motor_speed, '!');
       }
 
     }
@@ -182,22 +301,24 @@ void loop() {
   } else if(nunchuk.zButton == 1 && nunchuk.cButton == 0) { // arm
 
     int servo_pos = map(nunchuk.analogY, min_y, max_y, 0, 45);
-    
-    promulgate.transmit_action('#', 'S', 0, servo_pos, '!');
+
+    xbeeSend('#', 'S', 0, servo_pos, '!');
+    //promulgate.transmit_action('#', 'S', 0, servo_pos, '!');
 
     Serial << "arm pos: " << servo_pos << endl;
     
   } else if(nunchuk.zButton == 0 && nunchuk.cButton == 1) {
 
     int servo_pos = map(nunchuk.analogY, min_y, max_y, 0, 45);
-    
-    promulgate.transmit_action('#', 'C', 0, servo_pos, '!');
+
+    xbeeSend('#', 'C', 0, servo_pos, '!');
+    //promulgate.transmit_action('#', 'C', 0, servo_pos, '!');
 
     Serial << "claw pos: " << servo_pos << endl;
     
   }
 
-  delay(100);
+  delay(50);
 
 }
 
