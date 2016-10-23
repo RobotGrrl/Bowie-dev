@@ -1,3 +1,118 @@
+void distanceSensors() {
+
+  float left = analogRead(SONAR_LEFT);
+  delay(20);
+  float right = analogRead(SONAR_RIGHT);
+
+  float left_dist = ( (float)left * (3.3/512.0) ) * 2.54;
+  float right_dist = ( (float)right * (3.3/512.0) ) * 2.54;
+
+//    if(millis()-last_print >= 100) {
+//      Serial1 << "L: " << left_dist << "cm R: " << right_dist << "cm" << endl;
+//      last_print = millis();
+//    }
+
+
+  // count the trigs
+  if(left_dist < dist_thresh && right_dist < dist_thresh) {
+    if(millis()-last_print >= 100) {
+      Serial1 << "SS " << "Both triggered! L: " << left_dist << "cm R: " << right_dist << endl;
+      last_print = current_time;
+    }
+    
+    both_trig++;
+    last_both_trig = current_time;
+    
+  } else if(left_dist < dist_thresh) {
+    if(millis()-last_print >= 100) {
+      Serial1 << "SS " << "Left triggered! " << left_dist << "cm" << endl;
+      last_print = current_time;
+    }
+
+    left_trig++;
+    last_left_trig = current_time;
+    
+  } else if(right_dist < dist_thresh) {
+    if(millis()-last_print >= 100) {
+      Serial1 << "SS " << "Right triggered! " << right_dist << "cm" << endl;
+      last_print = current_time;
+    }
+
+    right_trig++;
+    last_right_trig = current_time;
+    
+  }
+
+
+  // clear out the goopy trigs
+  if(current_time-last_both_trig >= 1000) {
+    both_trig = 0;
+  }
+
+  if(current_time-last_left_trig >= 1000) {
+    left_trig = 0;
+  }
+
+  if(current_time-last_right_trig >= 1000) {
+    right_trig = 0;
+  }
+
+
+  result_n2 = result_n1;
+  result_n1 = result;
+
+  // determine what to do based on trigs
+  if(both_trig >= 10) {
+    // backup 
+
+    // just keep backing up regardless of n-1, n-2
+    
+    backward(2000);
+    result = 3;
+    
+  } else if(left_trig >= 10) {
+    // go right
+
+    backward(500);
+    rightEasy(1000);
+    result = 2;
+
+    /*
+    if(result_n1 == 1) {
+      // backup
+    } else if(result_n1 == 2) {
+      // 
+    } else if(result_n1 == 3) {
+      // 
+    }
+    */
+    
+  } else if(right_trig >= 10) {
+    // go left
+
+    backward(500);
+    leftEasy(1000);
+    result = 1;
+    
+  }
+
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 void sweepMode() {
     
   int claw_down = 1500;
@@ -335,4 +450,67 @@ while(1<3) {
 
 
 }
+
+
+void traverseAreaMode() {
+    
+  boolean fast_mode = true;
+  int spd = 220;
+  
+  if(!fast_mode) delay(1000);
+  
+  
+  while(1<3) {
+  
+    // forward
+    digitalWrite(superbright_l, HIGH);
+    leftBork();
+    motor_setDir(0, MOTOR_DIR_FWD);
+    motor_setSpeed(0, spd);
+  
+    digitalWrite(superbright_r, HIGH);
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, spd);  
+  
+  
+    delay(3000);
+  
+
+    for(int i=0; i<5; i++) {
+  
+    // turn
+    digitalWrite(superbright_l, LOW);
+    leftBork();
+    motor_setDir(0, MOTOR_DIR_REV);
+    motor_setSpeed(0, spd);
+  
+    digitalWrite(superbright_r, HIGH);
+    motor_setDir(1, MOTOR_DIR_FWD);
+    motor_setSpeed(1, spd);  
+  
+  
+    delay(500);
+
+
+    // bward
+    digitalWrite(superbright_l, HIGH);
+    leftBork();
+    motor_setDir(0, MOTOR_DIR_REV);
+    motor_setSpeed(0, spd);
+  
+    digitalWrite(superbright_r, HIGH);
+    motor_setDir(1, MOTOR_DIR_REV);
+    motor_setSpeed(1, spd);  
+  
+  
+    delay(200);
+
+    }
+
+    
+  }
+
+}
+
+
 

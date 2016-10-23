@@ -14,14 +14,16 @@
 #include <Adafruit_10DOF.h>
 #include <Servo.h>
 #include <math.h>
+#include "RunningAverage.h"
+#include <Adafruit_Simple_AHRS.h>
 
-/* Assign a unique ID to the sensors */
 Adafruit_10DOF                dof   = Adafruit_10DOF();
 Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(30301);
 Adafruit_LSM303_Mag_Unified   mag   = Adafruit_LSM303_Mag_Unified(30302);
 Adafruit_BMP085_Unified       bmp   = Adafruit_BMP085_Unified(18001);
 
-/* Update this with the correct SLP for accurate altitude measurements */
+Adafruit_Simple_AHRS          ahrs(&accel, &mag);
+
 float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
 
 
@@ -54,6 +56,18 @@ int superbright_r = 3;
 #define SONAR_RIGHT A11
 #define SONAR_THRESH 20
 
+float dist_thresh = 3.0;
+int left_trig = 0;
+int right_trig = 0;
+int both_trig = 0;
+long last_left_trig = 0;
+long last_right_trig = 0;
+long last_both_trig = 0;
+int result = 99; // 0 = nothing, 1 = left, 2 = right, 3 = back
+int result_n1 = 99; // what it did at the previous step n-1
+int result_n2 = 99; // n-2
+
+
 int sonar_reading_left = 0;
 int sonar_reading_right = 0;
 
@@ -62,17 +76,19 @@ int sonar_reading_right = 0;
 
 #define SERVO_ARM 4
 #define SERVO_CLAW 5
+#define SERVO_ARM2 6
 
 Servo arm;
 Servo claw;
+Servo arm2;
 
 boolean claw_state = false;
 
-int arm_max = 1000;
-int arm_home = 600;
-int arm_min = 400;
+int arm_max = 100; // standing up
+int arm_home = 100; // standing up
+int arm_min = 180; // closest to ground
 
-int claw_min = 1300;
+int claw_min = 1500;
 int claw_home = 800;
 int claw_max = 500;
 
@@ -136,8 +152,23 @@ int REMOTE_OP_STATE = 1;
 int HEADING_STATE = 2;
 int GPS_STATE = 3;
 int TESTING_STATE = 4;
+int MAKERFAIREOTT = 5;
 
-int STATE = HEADING_STATE;
+int STATE = MAKERFAIREOTT;
+
+RunningAverage testRA1(10);
+RunningAverage testRA2(50);
+int samples1 = 0;
+int samples2 = 0;
+
+long last_sensor_log = 0;
+
+long current_time = 0;
+
+
+
+
+
 
 void motor_init() {
   pinMode(MOTORA_CTRL1, OUTPUT);
@@ -232,13 +263,13 @@ void initSensors()
 
 void setup() {
 
-  delay(2000);
-  
   Serial.begin(9600);
+  Serial1.begin(9600);
   Serial2.begin(9600);
   Serial3.begin(9600);
 
-  Serial << "Hello! I am Bowie!\n";
+  Serial.print(F("Hello! I am Bowie!\n"));
+  Serial1.print(F("Hello! I am Bowie!\n"));
 
   promulgate.LOG_LEVEL = Promulgate::ERROR_;
   promulgate.set_rx_callback(received_action);
@@ -253,7 +284,6 @@ void setup() {
   //digitalWrite(superbright_l, HIGH);
   //digitalWrite(superbright_r, HIGH);
 
-
   pinMode(led_green, OUTPUT);
   digitalWrite(led_green, HIGH);
 
@@ -261,88 +291,38 @@ void setup() {
 
   arm.attach(SERVO_ARM);
   claw.attach(SERVO_CLAW);
+  arm2.attach(SERVO_ARM2);
 
-  arm.writeMicroseconds(arm_home);
+  arm.write(180-arm_home);
+  arm2.write(arm_home);
   claw.writeMicroseconds(claw_home);
 
   pinMode(led, OUTPUT);
   digitalWrite(led, HIGH);
   
-  
   motor_init();
 
   lat_buf.reserve(32);
   lon_buf.reserve(32);
-
   
-//  while(1<3) {
-//    motor_setSpeed(0, 255);
-//    motor_setSpeed(1, 255);
-//    motor_setDir(0, MOTOR_DIR_FWD);
-//    motor_setDir(1, MOTOR_DIR_FWD);
-//  }
+/*
+while(1<3) {
 
-//  while(1<3){
-//  motor_setDir(0, MOTOR_DIR_REV);
-//  motor_setDir(1, MOTOR_DIR_REV);
-//  for(int i=0; i<250; i++) {
-//    motor_setSpeed(0, i);
-//    motor_setSpeed(1, i);
-//    delay(10);
-//  }
-//  for(int i=250; i>0; i--) {
-//    motor_setSpeed(0, i);
-//    motor_setSpeed(1, i);
-//    delay(10);
-//  }
-//  motor_setDir(0, MOTOR_DIR_FWD);
-//  motor_setDir(1, MOTOR_DIR_FWD);
-//  for(int i=0; i<250; i++) {
-//    motor_setSpeed(0, i);
-//    motor_setSpeed(1, i);
-//    delay(10);
-//  }
-//  for(int i=250; i>0; i--) {
-//    motor_setSpeed(0, i);
-//    motor_setSpeed(1, i);
-//    delay(10);
-//  }
-//  }
+  int angle = 180;
+  
+  arm.write(180-angle); // left
+  delay(1000);
+  
+  arm2.write(angle); // right
+  delay(1000);
 
-
-//while(1<3) {
-//motor_setDir(0, MOTOR_DIR_FWD);
-//motor_setSpeed(0, 60);
-//delay(20);
-//motor_setDir(0, MOTOR_DIR_REV);
-//motor_setSpeed(0, 60);
-//delay(20);  
-////}
-//
-//while(1<3)  {
-//
-//motor_setSpeed(0, 60);
-//    motor_setSpeed(1, 60);
-//    motor_setDir(0, MOTOR_DIR_FWD);
-//    motor_setDir(1, MOTOR_DIR_REV);
-//  
-//}
+}
+*/
 
 
 
-
-  //arm.writeMicroseconds(400); // higher val = up, lower val = down
-  //claw.writeMicroseconds(500); // higher val = down, lower val = up
-//
-//while(1<3) {
-//
 //  for(int i=arm_min; i<arm_max; i++) {
 //    arm.writeMicroseconds(i);
-//    delay(1);
-//  }
-//
-//  for(int i=claw_min; i>claw_max; i--) {
-//    claw.writeMicroseconds(i);
 //    delay(1);
 //  }
 //
@@ -350,21 +330,37 @@ void setup() {
 //    arm.writeMicroseconds(i);
 //    delay(1);
 //  }
+
+//  for(int i=claw_min; i>claw_max; i--) {
+//    claw.writeMicroseconds(i);
+//    delay(1);
+//  }
 //
 //  for(int i=claw_max; i<claw_min; i++) {
 //    claw.writeMicroseconds(i);
 //    delay(1);
 //  }
-//  
-//}
+  
 
   initSensors();
+
+  testRA1.clear();
+  testRA2.clear();
 
   Serial.print(F("Let's go! Nom nom nom"));
 
 }
 
 void loop() {
+
+  current_time = millis();
+
+  //traverseAreaMode();
+
+  /*
+  Serial1.print("~\n");
+  delay(100);
+  */
 
   /*
   if(millis()-last_print >= 100) {
@@ -379,18 +375,67 @@ void loop() {
   }
   */
 
+
+  if(STATE == MAKERFAIREOTT) {
+
+    //distanceSensors();   
+
+
+    while(Serial2.available()) {
+      char c = Serial2.read();
+      promulgate.organize_message(c);
+      Serial << c;
+      if(c == '!') Serial << "\n";
+    }
+  
+    if(millis()-last_rx >= 500) {
+      digitalWrite(led_green, LOW);
+      leftBork();
+      motor_setDir(0, MOTOR_DIR_FWD);
+      motor_setSpeed(0, 0);
+      motor_setDir(1, MOTOR_DIR_FWD);
+      motor_setSpeed(1, 0);
+    } else {
+      digitalWrite(led_green, HIGH);
+    }
+
+
+    // logging sensor data
+//    if(current_time-last_sensor_log >= 100) {
+//      sensorDataLog();
+//    }
+    
+    
+  }
+
+ 
+
   if(STATE == TESTING_STATE) {
 
-    //mag_calibrate();
-  
-    //angle_diff_test();
-  
-    //mag_mode2();
-  
+    float the_heading = getCurrentHeading();
+
+    testRA1.addValue(the_heading); samples1++;
+    testRA2.addValue(the_heading); samples2++;
+
+    if(millis()-last_print >= 100) {
+      Serial1 << the_heading << ", " << testRA1.getAverage() << ", " << testRA2.getAverage() << endl;
+      last_print = millis();  
+    }
+
+    if(samples1 == 100) {
+      samples1 = 0;
+      testRA1.clear();
+    }
+
+    if(samples2 == 100) {
+      samples2 = 0;
+      testRA2.clear();
+    }
+    
     //getCurrentHeading();
     //delay(500);
 
-    followHeading(255.0, 1);
+    //followHeading(255.0, 1);
     //delay(100);
 
   }
@@ -1258,13 +1303,25 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
   if(cmd == 'S') { // arm (data from 0-45)
      
     int the_pos = (int)map(val, 0, 45, arm_min, arm_max);
-    arm.writeMicroseconds(the_pos);
+
+    if(the_pos < (115+5) && the_pos > (115-5)) {
+      the_pos = 140;
+    }
+      
+    arm.write(180-the_pos);
+    arm2.write(the_pos);
+    
+    Serial << "\narm angle: " << the_pos << endl;
+    
   }
 
   if(cmd == 'C') { // claw
      
     int the_pos = (int)map(val, 0, 45, claw_min, claw_max);
     claw.writeMicroseconds(the_pos);
+
+    Serial << "\nclaw angle: " << the_pos << endl;
+    
   }
    
 }
