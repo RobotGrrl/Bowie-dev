@@ -16,6 +16,8 @@
 #include <math.h>
 #include "RunningAverage.h"
 #include <Adafruit_Simple_AHRS.h>
+#include <XBee.h>
+
 
 Adafruit_10DOF                dof   = Adafruit_10DOF();
 Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(30301);
@@ -154,7 +156,7 @@ int GPS_STATE = 3;
 int TESTING_STATE = 4;
 int MAKERFAIREOTT = 5;
 
-int STATE = MAKERFAIREOTT;
+int STATE = REMOTE_OP_STATE;
 
 RunningAverage testRA1(10);
 RunningAverage testRA2(50);
@@ -166,6 +168,20 @@ long last_sensor_log = 0;
 long current_time = 0;
 
 
+
+// ------------- Xbee vars
+XBee xbee = XBee();
+
+XBeeAddress64 addr64 = XBeeAddress64(0x00000000, 0x0000ffff);
+XBeeAddress64 addr_controller = XBeeAddress64(0x0013A200, 0x40DD9902);
+XBeeAddress64 addr_robot = XBeeAddress64(0x0013A200, 0x40D96FC2);
+ZBTxStatusResponse txStatus = ZBTxStatusResponse();
+ZBRxResponse rx = ZBRxResponse();
+char message_tx[64];
+char message_rx[64];
+uint32_t msg_tx_count = 0;
+uint32_t msg_rx_count = 0;
+uint32_t msg_tx_err = 0;
 
 
 
@@ -267,6 +283,8 @@ void setup() {
   Serial1.begin(9600);
   Serial2.begin(9600);
   Serial3.begin(9600);
+
+  xbee.setSerial(Serial2);
 
   Serial.print(F("Hello! I am Bowie!\n"));
   Serial1.print(F("Hello! I am Bowie!\n"));
@@ -485,13 +503,21 @@ void loop() {
 
 
   if(STATE == REMOTE_OP_STATE) {
-    
-    if(Serial2.available()) {
-      char c = Serial2.read();
-      promulgate.organize_message(c);
-      Serial << c;
-      if(c == '!') Serial << "\n";
+
+    if(xbeeRead()) {
+      for(int i=0; i<rx.getDataLength(); i++) {
+        promulgate.organize_message(message_rx[i]);
+        Serial << message_rx[i];
+        if(message_rx[i] == '!') Serial << "\n";
+      }
     }
+
+//    if(Serial2.available()) {
+//      char c = Serial2.read();
+//      promulgate.organize_message(c);
+//      Serial << c;
+//      if(c == '!') Serial << "\n";
+//    }
   
     if(millis()-last_rx >= 500) {
       digitalWrite(led_green, LOW);
