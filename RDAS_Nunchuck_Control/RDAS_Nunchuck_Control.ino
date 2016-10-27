@@ -103,6 +103,16 @@ uint32_t msg_tx_count = 0;
 uint32_t msg_rx_count = 0;
 uint32_t msg_tx_err = 0;
 
+// ----------
+
+// ------- follow heading variables
+
+long last_white_press = 0;
+boolean following_heading = false;
+long last_auton_blink = 0;
+bool auton_blink = true;
+
+// -------
 
 
 void setup() {
@@ -143,7 +153,7 @@ void setup() {
   whitebouncer.attach(WHITEBUTTON);
   whitebouncer.interval(DEBOUNCE);
 
-/*
+  /*
   while(1<3) {
 
 //    digitalWrite(LED1, HIGH);
@@ -177,6 +187,7 @@ void setup() {
   }
   */
   
+  
   nunchuk.init();
 }
 
@@ -190,6 +201,62 @@ void loop() {
     digitalWrite(led, HIGH);
   }
   led_on = !led_on;
+
+
+
+  redbouncer.update();
+  greenbouncer.update();
+  yellowbouncer.update();
+  bluebouncer.update();
+  whitebouncer.update();
+
+  //if(redbouncer.read() == HIGH) digitalWrite(LED1, HIGH);
+  //if(greenbouncer.read() == HIGH) digitalWrite(LED2, HIGH);
+  
+  if(yellowbouncer.read() == HIGH) { // set the heading
+    xbeeSend('@', 'H', 0, 0, '!');
+    digitalWrite(LED3, HIGH);
+  }
+  
+  //if(bluebouncer.read() == HIGH) digitalWrite(LED4, HIGH);
+  
+  if(whitebouncer.read() == HIGH) { // follow the heading
+
+    if(current_time-last_white_press > 5000) {
+      following_heading = !following_heading;
+      if(following_heading) {
+        xbeeSend('@', 'G', 0, 0, '!'); // go
+      } else {
+        xbeeSend('@', 'P', 0, 0, '!'); // stop
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, LOW);
+        digitalWrite(LED4, LOW);
+      }
+    }
+    
+    last_white_press = current_time;
+  }
+
+  if(following_heading) {
+    if(current_time-last_auton_blink >= 500) {
+      if(auton_blink) {
+        digitalWrite(LED1, HIGH);
+        digitalWrite(LED2, HIGH);
+        digitalWrite(LED3, HIGH);
+        digitalWrite(LED4, HIGH);
+      } else {
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, LOW);
+        digitalWrite(LED4, LOW);
+      }
+      last_auton_blink = current_time;
+      auton_blink = !auton_blink;
+    }
+  }
+
+
 
   /*  
   // nunchuck debug print stuff
