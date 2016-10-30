@@ -33,7 +33,6 @@ int superbright_r = 3;
 
 #define SONAR_LEFT A10
 #define SONAR_RIGHT A11
-#define SONAR_THRESH 20
 
 #define SERVO_ARM 4
 #define SERVO_CLAW 5
@@ -48,6 +47,7 @@ boolean claw_state = false;
 int arm_max = 100; // standing up
 int arm_home = 100; // standing up
 int arm_min = 180; // closest to ground
+int arm_exploration = 40; // all the way up, without the end effector on it
 
 int claw_min = 1500;
 int claw_home = 800;
@@ -131,6 +131,7 @@ float heading_result = 0;
 
 // go to a target
 #define DESTINATION_THRESH 5
+#define STRAIGHT_ANGLE_THRESH 15.0
 float target = 30;
 float alpha = 0;
 bool turning = false;
@@ -155,8 +156,39 @@ boolean FOLLOW_HEADING = false;
 
 // --------
 
+// ------ obstacle detection
+
+#define ULTRASONIC_SAMPLES 30
+#define PREV_ULTRASONIC_WEIGHT 0.4
+#define ULTRASONIC_THRESH_STOP 40
+#define ULTRASONIC_THRESH_SLOW 50
+int ultrasonic_sample = 0;
+float ultrasonic_left_reading[2];
+float ultrasonic_right_reading[2];
+float ultrasonic_left_total = 0;
+float ultrasonic_right_total = 0;
+float ultrasonic_left_result = 0;
+float ultrasonic_right_result = 0;
+float ultrasonic_left_cm = 0;
+float ultrasonic_right_cm = 0;
+
+#define TRIG_COUNT 10
+int left_trig_count[2] = {0,0};
+long last_left_trig = 0;
+int right_trig_count[2] = {0,0};
+long last_right_trig = 0;
+bool left_stop = false;
+bool left_slow = false;
+bool right_stop = false;
+bool right_slow = false;
+
+#define ULTRASONIC_MOTOR_OVERRIDE true
+#define SLOW_SPEED 0.4
+float SPEED_ADJUST = 1.0;
+// --------
 
 
+long current_time = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -184,8 +216,8 @@ void setup() {
   claw.attach(SERVO_CLAW);
   arm2.attach(SERVO_ARM2);
 
-  arm.write(180-arm_home);
-  arm2.write(arm_home);
+  arm.write(180-arm_exploration);
+  arm2.write(arm_exploration);
   claw.writeMicroseconds(claw_home);
 
   pinMode(led, OUTPUT);
@@ -203,9 +235,119 @@ void setup() {
 
   Serial.print(F("Let's go! Nom nom nom"));
 
+  // ------- testing
+
+  FOLLOW_HEADING = false;
+  AUTONOMOUS = false;
+
+  // ----------
+
 }
 
 void loop(void) {
+
+  current_time = millis();
+
+
+  // --------- read ultrasonic sensors
+
+  if(ultrasonic_sample < ULTRASONIC_SAMPLES) {
+    ultrasonic_left_reading[1] = ultrasonic_left_reading[0];
+    ultrasonic_left_reading[0] = analogRead(SONAR_LEFT) / 4;// * (1023/3.3);
+    ultrasonic_left_total += ( ultrasonic_left_reading[0] + PREV_ULTRASONIC_WEIGHT * ultrasonic_left_reading[1] );
+
+    ultrasonic_right_reading[1] = ultrasonic_right_reading[0];
+    ultrasonic_right_reading[0] = analogRead(SONAR_RIGHT) / 4;// * (1023/3.3);
+    ultrasonic_right_total += ( ultrasonic_right_reading[0] + PREV_ULTRASONIC_WEIGHT * ultrasonic_right_reading[1] );
+
+    ultrasonic_sample++;
+  } else {
+
+    ultrasonic_left_result = ultrasonic_left_total / ULTRASONIC_SAMPLES;
+    ultrasonic_right_result = ultrasonic_right_total / ULTRASONIC_SAMPLES;
+
+    ultrasonic_left_cm = ultrasonic_left_result * 2.54;
+    ultrasonic_right_cm = ultrasonic_right_result * 2.54;
+
+    ultrasonic_sample = 0;
+    ultrasonic_left_total = 0;
+    ultrasonic_right_total = 0;
+
+    Serial << millis() << "\tL: " << ultrasonic_left_result << "\tR: " << ultrasonic_right_result;
+    Serial << "\tL (cm): " << ultrasonic_left_cm << "\tR (cm): " << ultrasonic_right_cm << endl;
+  }
+  
+  // ----------
+
+  // ----------- obstacle detection
+
+  if(ultrasonic_left_cm < ULTRASONIC_THRESH_STOP) {
+    left_trig_count[0]++;
+    last_left_trig = current_time;
+    //Serial << current_time << "\tleft stop \t" << left_trig_count[0] << endl;
+  } else if(ultrasonic_left_cm < ULTRASONIC_THRESH_SLOW) {
+    left_trig_count[1]++;
+    last_left_trig = current_time;
+    //Serial << current_time << "\tleft slow" << endl;
+  }
+
+  if(ultrasonic_right_cm < ULTRASONIC_THRESH_STOP) {
+    right_trig_count[0]++;
+    last_right_trig = current_time;
+    //Serial << current_time << "\tright stop" << endl;
+  } else if(ultrasonic_right_cm < ULTRASONIC_THRESH_SLOW) {
+    right_trig_count[1]++;
+    last_right_trig = current_time;
+    //Serial << current_time << "\tright slow" << endl;
+  }
+
+  if(current_time-last_left_trig >= 500) {
+    //Serial << current_time << "\tleft trig reset" << endl;
+    last_left_trig = 0;
+    left_trig_count[0] = 0;
+    left_trig_count[1] = 0;
+    SPEED_ADJUST = 1.0;
+  }
+
+  if(current_time-last_right_trig >= 500) {
+    //Serial << current_time << "\tright trig reset" << endl;
+    last_right_trig = 0;
+    right_trig_count[0] = 0;
+    right_trig_count[1] = 0;
+    SPEED_ADJUST = 1.0;
+  }
+
+  // -----------
+
+  // ---------- action
+
+  if(ULTRASONIC_MOTOR_OVERRIDE) {
+  
+    if(left_trig_count[0] >= TRIG_COUNT || left_trig_count[1] >= TRIG_COUNT) {
+      if(left_trig_count[0] > left_trig_count[1]) { // stop
+        Serial << current_time << "\tleft ultrasonic override stop" << endl;
+        SPEED_ADJUST = 0.0;
+      } else { // slow down
+        Serial << current_time << "\tleft ultrasonic override slow down" << endl;
+        SPEED_ADJUST = SLOW_SPEED;
+      }
+    }
+  
+    if(right_trig_count[0] >= TRIG_COUNT || right_trig_count[1] >= TRIG_COUNT) {
+      if(right_trig_count[0] > right_trig_count[1]) { // stop
+        Serial << current_time << "\tright ultrasonic override stop" << endl;
+        SPEED_ADJUST = 0.0;
+      } else { // slow down
+        Serial << current_time << "\tright ultrasonic override slow down" << endl;
+        SPEED_ADJUST = SLOW_SPEED;
+      }
+    }
+
+  }
+
+  // ----------
+
+  
 
   // --------- ahrs code
   
@@ -276,21 +418,10 @@ void loop(void) {
 
   // ------- go to a target
 
-  if(millis() > 5000) { // ensure the program has been running for a bit
-
-    int the_speed = 255;
+  if(current_time > 5000) { // ensure the program has been running for a bit
 
     float opp_angle;
     float current = heading_result;
-
-    /*
-    if(millis()-last_sub >= 500) {
-      current -= (10*subs); // say it drifts 10 deg per x s
-      subs++;
-      last_sub = millis();
-      //if(current < 0) current += 360; // idk wtf
-    }
-    */
 
     alpha = target - current;
     if(alpha > 180) alpha -= 360;
@@ -302,70 +433,50 @@ void loop(void) {
       clockwise = false;
     }
     
-    Serial.print(millis());
-    Serial.print("\tH: ");
-    Serial.print(heading_result);
-    Serial.print("\tA: ");
-    Serial.print(alpha);
-    Serial.print("\t");
+//    Serial.print(millis());
+//    Serial.print("\tH: ");
+//    Serial.print(heading_result);
+//    Serial.print("\tA: ");
+//    Serial.print(alpha);
+//    Serial.print("\t");
 
 
-    if(FOLLOW_HEADING == true) {
+    if(FOLLOW_HEADING) {
+      Serial << "\nwhat" << endl;
 
-      if(abs(alpha)<15.0) {
+      if(abs(alpha) < STRAIGHT_ANGLE_THRESH) {
+        
+        forward(0, 255);
+        forward(1, 255);
           
-        digitalWrite(superbright_l, HIGH);
-        digitalWrite(superbright_r, LOW);
-        //leftBork();
-        motor_setDir(1, MOTOR_DIR_FWD);
-        motor_setSpeed(1, 255);
-        motor_setDir(0, MOTOR_DIR_FWD);
-        motor_setSpeed(0, 255);
-  
       } else {
   
         if(clockwise) {
-          Serial.print("CW\t");
-    
-          digitalWrite(superbright_l, LOW);
-          digitalWrite(superbright_r, HIGH);
-          //leftBork();
-          motor_setDir(0, MOTOR_DIR_REV);
-          motor_setSpeed(0, 150);
-          motor_setDir(1, MOTOR_DIR_FWD);
-          motor_setSpeed(1, the_speed);
-          
-          
+          //Serial.print("CW\t");
+          reverse(0, 150);
+          forward(1, 255);
         } else {
-          Serial.print("CCW\t");
-    
-          digitalWrite(superbright_l, HIGH);
-          digitalWrite(superbright_r, LOW);
-          //leftBork();
-          motor_setDir(1, MOTOR_DIR_REV);
-          motor_setSpeed(1, 150);
-          motor_setDir(0, MOTOR_DIR_FWD);
-          motor_setSpeed(0, the_speed);
-          
+          //Serial.print("CCW\t");
+          forward(0, 255);
+          reverse(1, 150);
         }
   
       }
-
+      
     }
 
-
-    Serial.print("\n");
+    //Serial.print("\n");
 
   }
 
-  delay(10);
-  
   // --------
   
 
 
 
+  // ------- remote operator
 
+  
   if(xbeeRead()) {
     for(int i=0; i<rx.getDataLength(); i++) {
       promulgate.organize_message(message_rx[i]);
@@ -373,19 +484,19 @@ void loop(void) {
       if(message_rx[i] == '!') Serial << "\n";
     }
   }
-
-  if(millis()-last_rx >= 500) {
+  
+  if(current_time-last_rx >= 500) {
     digitalWrite(led_green, LOW);
-    leftBork();
-    motor_setDir(0, MOTOR_DIR_FWD);
-    motor_setSpeed(0, 0);
-    motor_setDir(1, MOTOR_DIR_FWD);
-    motor_setSpeed(1, 0);
+    forward(0, 0);
+    forward(1, 0);
     AUTONOMOUS = false;
     FOLLOW_HEADING = false;
   } else {
     digitalWrite(led_green, HIGH);
   }
+  
+
+  // ---------------
 
 
   

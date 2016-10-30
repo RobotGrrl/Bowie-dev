@@ -29,27 +29,17 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
 
     if(cmd == 'L' && AUTONOMOUS == false) { // left motor
       if(key == 1) { // fwd
-        digitalWrite(superbright_l, HIGH);
-        leftBork();
-        motor_setDir(0, MOTOR_DIR_FWD);
-        motor_setSpeed(0, val);
+        forward(0, val);
       } else if(key == 0) { // bwd
-        digitalWrite(superbright_l, LOW);
-        leftBork();
-        motor_setDir(0, MOTOR_DIR_REV);
-        motor_setSpeed(0, val);
+        reverse(0, val);
       }
     }
   
     if(cmd == 'R' && AUTONOMOUS == false) { // right motor
       if(key == 1) { // fwd
-        digitalWrite(superbright_r, HIGH);
-        motor_setDir(1, MOTOR_DIR_FWD);
-        motor_setSpeed(1, val);   
+        forward(1, val);
       } else if(key == 0) { // bwd
-        digitalWrite(superbright_r, LOW);
-        motor_setDir(1, MOTOR_DIR_REV);
-        motor_setSpeed(1, val);
+        reverse(1, val);
       }
     }
 
@@ -59,27 +49,17 @@ void received_action(char action, char cmd, uint8_t key, uint16_t val, char deli
 
     if(cmd == 'L' && AUTONOMOUS == false) { // left motor
       if(key == 1) { // fwd
-        digitalWrite(superbright_l, HIGH);
-        leftBork();
-        motor_setDir(0, MOTOR_DIR_FWD);
-        motor_setSpeed(0, val);
+        forward(0, val);
       } else if(key == 0) { // bwd
-        digitalWrite(superbright_l, LOW);
-        leftBork();
-        motor_setDir(0, MOTOR_DIR_REV);
-        motor_setSpeed(0, val);
+        reverse(0, val);
       }
     }
   
     if(cmd == 'R' && AUTONOMOUS == false) { // right motor
       if(key == 1) { // fwd
-        digitalWrite(superbright_r, HIGH);
-        motor_setDir(1, MOTOR_DIR_FWD);
-        motor_setSpeed(1, val);
+        forward(1, val);
       } else if(key == 0) { // bwd
-        digitalWrite(superbright_r, LOW);
-        motor_setDir(1, MOTOR_DIR_REV);
-        motor_setSpeed(1, val);
+        reverse(1, val);
       }
     }
 
