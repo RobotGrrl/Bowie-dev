@@ -106,12 +106,17 @@ Adafruit_LSM303_Mag_Unified   mag(30302);
 // below.
 
 // Offsets applied to raw x/y/z values
-float mag_offsets[3]            = { -2.20F, -5.53F, -26.34F };
+//float mag_offsets[3]            = { -2.20F, -5.53F, -26.34F };
+float mag_offsets[3]            = { 0.0F, 0.0F, 0.0F };
 
 // Soft iron error compensation matrix
 float mag_softiron_matrix[3][3] = { { 0.934, 0.005, 0.013 },
                                     { 0.005, 0.948, 0.012 },
                                     { 0.013, 0.012, 1.129 } }; 
+//float mag_softiron_matrix[3][3] = { { 0.0, 0.0, 0.0 },
+//                                    { 0.0, 0.0, 0.0 },
+//                                    { 0.0, 0.0, 0.0 } }; 
+
 
 float mag_field_strength        = 48.41F;
 
@@ -122,7 +127,7 @@ Madgwick filter;
 
 
 // averaging filter
-#define READ_SAMPLES 10
+#define READ_SAMPLES 50
 #define PREV_WEIGHT 0.4
 int num_sample = 0;
 float heading_reading[2];
@@ -131,12 +136,16 @@ float heading_result = 0;
 
 // go to a target
 #define DESTINATION_THRESH 5
-#define STRAIGHT_ANGLE_THRESH 15.0
-float target = 30;
+#define STRAIGHT_ANGLE_THRESH 30.0
+#define COMPASS_MOTOR_PAUSE 3000
+float MOTOR_HEADING_ON_TIME = 100;
+float target = 48;
 float alpha = 0;
 bool turning = false;
 bool clockwise = false;
-
+long last_heading_change = 0;
+long last_pause_time = 0;
+boolean pause_for_compass = true;
 // -------------------
 
 
@@ -151,8 +160,12 @@ int AHRS_TESTING = 6;
 
 int STATE = AHRS_TESTING;
 
-boolean AUTONOMOUS = false;
-boolean FOLLOW_HEADING = false;
+boolean AUTONOMOUS = true;
+boolean EMERGENCY_STOP = false;
+boolean FOLLOW_HEADING = true;
+boolean FOLLOW_GPS = true;
+boolean GOTO_GPS_WAYPOINT = true;
+boolean ULTRASONIC_MOTOR_OVERRIDE = false;
 
 // --------
 
@@ -172,7 +185,7 @@ float ultrasonic_right_result = 0;
 float ultrasonic_left_cm = 0;
 float ultrasonic_right_cm = 0;
 
-#define TRIG_COUNT 10
+#define TRIG_COUNT 20
 int left_trig_count[2] = {0,0};
 long last_left_trig = 0;
 int right_trig_count[2] = {0,0};
@@ -182,33 +195,54 @@ bool left_slow = false;
 bool right_stop = false;
 bool right_slow = false;
 
-#define ULTRASONIC_MOTOR_OVERRIDE true
 #define SLOW_SPEED 0.4
 float SPEED_ADJUST = 1.0;
 // --------
+
+// --------- GPS
+#define GOAL_THRESH 3.0
+
+String lat_buf = "";
+String lon_buf = "";
+float lat_current = 0.0;
+float lon_current = 0.0;
+int reading_state = 0;
+long last_gps_receive = 0;
+uint32_t gps_receives = 0;
+
+// cherry beach - super field test 2016
+//#define GOAL_LAT 43.636806
+//#define GOAL_LON -79.343826
+
+// home plate
+#define GOAL_LAT 44.215789
+#define GOAL_LON -76.524040
+#define COMPASS_DELTA 239.0
+float goal_distance = 0.0;
+float goal_heading = 0.0;
+// -----------
 
 
 long current_time = 0;
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(9600); // promulgate
+  Serial2.begin(9600); // promulgate via xbee
+  Serial3.begin(9600); // gps
   xbee.setSerial(Serial2);
-
 
   promulgate.LOG_LEVEL = Promulgate::ERROR_;
   promulgate.set_rx_callback(received_action);
   promulgate.set_tx_callback(transmit_complete);
-  
 
   Serial.print(F("Hello! I am Bowie!\n"));
-  
+
   pinMode(SONAR_RIGHT, INPUT);
   pinMode(SONAR_LEFT, INPUT);
 
   pinMode(superbright_l, OUTPUT);
   pinMode(superbright_r, OUTPUT);
-
+  
   pinMode(led_green, OUTPUT);
   digitalWrite(led_green, HIGH);
 
@@ -225,22 +259,20 @@ void setup() {
   
   motor_init();
 
-
-  
-
   initSensors();
 
-
-
-
+  lat_buf.reserve(32);
+  lon_buf.reserve(32);
+  
   Serial.print(F("Let's go! Nom nom nom"));
 
-  // ------- testing
-
-  FOLLOW_HEADING = false;
-  AUTONOMOUS = false;
-
-  // ----------
+//  while(1<3) {
+//    forward(0, 255);
+//    forward(1, 255);
+//    delay(500);
+//    emergencyStop();
+//    delay(1000);
+//  }
 
 }
 
@@ -248,6 +280,7 @@ void loop(void) {
 
   current_time = millis();
 
+  //Serial << "!" << endl;
 
   // --------- read ultrasonic sensors
 
@@ -273,8 +306,8 @@ void loop(void) {
     ultrasonic_left_total = 0;
     ultrasonic_right_total = 0;
 
-    Serial << millis() << "\tL: " << ultrasonic_left_result << "\tR: " << ultrasonic_right_result;
-    Serial << "\tL (cm): " << ultrasonic_left_cm << "\tR (cm): " << ultrasonic_right_cm << endl;
+    //Serial << millis() << "\tL: " << ultrasonic_left_result << "\tR: " << ultrasonic_right_result;
+    //Serial << "\tL (cm): " << ultrasonic_left_cm << "\tR (cm): " << ultrasonic_right_cm << endl;
   }
   
   // ----------
@@ -322,25 +355,57 @@ void loop(void) {
   // ---------- action
 
   if(ULTRASONIC_MOTOR_OVERRIDE) {
-  
-    if(left_trig_count[0] >= TRIG_COUNT || left_trig_count[1] >= TRIG_COUNT) {
-      if(left_trig_count[0] > left_trig_count[1]) { // stop
-        Serial << current_time << "\tleft ultrasonic override stop" << endl;
-        SPEED_ADJUST = 0.0;
-      } else { // slow down
-        Serial << current_time << "\tleft ultrasonic override slow down" << endl;
-        SPEED_ADJUST = SLOW_SPEED;
+
+    if(!GOTO_GPS_WAYPOINT) { // if we aren't going to a gps waypoint, then adjust based off of sensors
+
+      if(left_trig_count[0] >= TRIG_COUNT || left_trig_count[1] >= TRIG_COUNT) {
+        if(left_trig_count[0] > left_trig_count[1]) { // stop
+          Serial << current_time << "\tleft ultrasonic override stop" << endl;
+          SPEED_ADJUST = 0.0;
+        } else { // slow down
+          Serial << current_time << "\tleft ultrasonic override slow down" << endl;
+          SPEED_ADJUST = SLOW_SPEED;
+        }
       }
-    }
-  
-    if(right_trig_count[0] >= TRIG_COUNT || right_trig_count[1] >= TRIG_COUNT) {
-      if(right_trig_count[0] > right_trig_count[1]) { // stop
-        Serial << current_time << "\tright ultrasonic override stop" << endl;
-        SPEED_ADJUST = 0.0;
-      } else { // slow down
-        Serial << current_time << "\tright ultrasonic override slow down" << endl;
-        SPEED_ADJUST = SLOW_SPEED;
+    
+      if(right_trig_count[0] >= TRIG_COUNT || right_trig_count[1] >= TRIG_COUNT) {
+        if(right_trig_count[0] > right_trig_count[1]) { // stop
+          Serial << current_time << "\tright ultrasonic override stop" << endl;
+          SPEED_ADJUST = 0.0;
+        } else { // slow down
+          Serial << current_time << "\tright ultrasonic override slow down" << endl;
+          SPEED_ADJUST = SLOW_SPEED;
+        }
       }
+      
+    } else { // if we are following a heading, try to move around it
+
+      // TODO: Debug this in the field
+//      
+//        // backup
+//        if(left_trig_count[0] >= TRIG_COUNT || left_trig_count[1] >= TRIG_COUNT) {
+//          if(right_trig_count[0] >= TRIG_COUNT || right_trig_count[1] >= TRIG_COUNT) {
+//            reverse(0, 255);
+//            reverse(1, 255);
+//            delay(1000);
+//          }
+//        }
+//  
+//        // turn right
+//        if(left_trig_count[0] >= TRIG_COUNT || left_trig_count[1] >= TRIG_COUNT) {
+//          reverse(0, 150);
+//          forward(1, 255);
+//          delay(500);
+//        }
+//  
+//        // turn left
+//        if(right_trig_count[0] >= TRIG_COUNT || right_trig_count[1] >= TRIG_COUNT) {
+//          forward(0, 255);
+//          reverse(1, 150);
+//          delay(500);
+//        }
+      
+      
     }
 
   }
@@ -438,33 +503,62 @@ void loop(void) {
 //    Serial.print(heading_result);
 //    Serial.print("\tA: ");
 //    Serial.print(alpha);
-//    Serial.print("\t");
+//    Serial.print("\n");
 
+    if(FOLLOW_HEADING == true) {
 
-    if(FOLLOW_HEADING) {
-      Serial << "\nwhat" << endl;
+     if(current_time-last_heading_change >= MOTOR_HEADING_ON_TIME) {
 
-      if(abs(alpha) < STRAIGHT_ANGLE_THRESH) {
-        
-        forward(0, 255);
-        forward(1, 255);
+        if(pause_for_compass) {
+
+          if(current_time-last_pause_time >= COMPASS_MOTOR_PAUSE) {
+            last_pause_time = current_time;
+            pause_for_compass = !pause_for_compass;
+          } else {
+            forward(0, 0);
+            forward(1, 0);
+            //Serial << "waiting... " << current_time-last_pause_time-1500 << endl;
+          }
           
-      } else {
-  
-        if(clockwise) {
-          //Serial.print("CW\t");
-          reverse(0, 150);
-          forward(1, 255);
         } else {
-          //Serial.print("CCW\t");
-          forward(0, 255);
-          reverse(1, 150);
-        }
-  
-      }
-      
-    }
 
+          if(FOLLOW_GPS) {
+
+            forward(0, 255);
+            forward(1, 255);
+            MOTOR_HEADING_ON_TIME = 2000;
+            
+          } else {
+    
+            if(abs(alpha) < STRAIGHT_ANGLE_THRESH) {
+              //Serial.print("S ");
+              forward(0, 255);
+              forward(1, 255);
+              MOTOR_HEADING_ON_TIME = 2000;
+            } else {
+              if(clockwise) {
+                //Serial.print("CW ");
+                reverse(0, 150);
+                forward(1, 255);
+                MOTOR_HEADING_ON_TIME = 250; // 100 for concrete, 250 for grass or sand
+              } else {
+                //Serial.print("CCW ");
+                forward(0, 255);
+                reverse(1, 150);
+                MOTOR_HEADING_ON_TIME = 250;
+              }
+            }
+
+          }
+  
+            pause_for_compass = !pause_for_compass;
+            last_heading_change = current_time;
+
+          
+        }
+
+     }
+    }
     //Serial.print("\n");
 
   }
@@ -472,6 +566,93 @@ void loop(void) {
   // --------
   
 
+  // -------- read from GPS
+  //delay(100);
+  while(Serial3.available()) {
+    char c = Serial3.read();
+    Serial << c;
+    
+    if(c == 'A') {
+      //Serial << " a ";
+      reading_state = 1;
+    } else if(c == 'B') {
+      //Serial << " b ";
+      reading_state = 2;
+    } else if(c == ',') {
+      //Serial << " blorp ";
+      reading_state = 0;
+    } else if(c == ';') {
+      //Serial << " ting ";
+      reading_state = 0;
+      lat_current = lat_buf.toFloat();
+      lon_current = lon_buf.toFloat();
+      lat_buf = "";
+      lon_buf = "";
+      gps_receives++;
+
+      Serial << current_time << "\t" << gps_receives << "\tGPS lat: " << lat_current << "\tlon: " << lon_current << endl;
+
+    }
+
+    if(reading_state == 1) {
+      if(c != 'A' && c != ',') lat_buf += c;
+    } else if(reading_state == 2) {
+      if(c != 'B' && c != ';') lon_buf += c;
+    }
+
+    last_gps_receive = current_time;
+  
+  }
+
+  if(current_time-last_gps_receive >= 5000 && last_gps_receive != 0) {
+    Serial << current_time << "\t!!! Haven't received anything from GPS in >5s" << endl;
+    gps_receives = 0;
+  }
+
+  // ---------
+
+  // --------- GPS action
+  //delay(100);
+  if(GOTO_GPS_WAYPOINT) {
+        
+    if(gps_receives > 5) {
+
+      goal_distance = distanceBetween(lat_current, lon_current, GOAL_LAT, GOAL_LON);
+      goal_heading = courseTo(lat_current, lon_current, GOAL_LAT, GOAL_LON);
+
+      if(goal_distance > GOAL_THRESH) {
+        // GO GO GO!!
+
+        target = goal_heading-COMPASS_DELTA;
+        
+        Serial << "following the gps, target heading = " << target << endl;
+
+        Serial << current_time << "\tDistance to goal: " << goal_distance;
+        Serial << "\tCourse to: " << goal_heading;
+        Serial << "\tCurrent Heading: " << heading_result << endl;
+        
+        FOLLOW_GPS = true;
+        FOLLOW_HEADING = true;
+      } else {
+        Serial.print("Bowie has arrived at the coordinates!");
+        FOLLOW_HEADING = false;
+        FOLLOW_GPS = false;
+        forward(0, 0);
+        forward(1, 0);
+        for(int i=0; i<2; i++) {
+          digitalWrite(superbright_l, HIGH);
+          digitalWrite(superbright_r, HIGH);
+          delay(100);
+          digitalWrite(superbright_l, LOW);
+          digitalWrite(superbright_r, LOW);
+          delay(100);
+        }
+      }
+    }
+    
+  }
+
+  // -----------
 
 
   // ------- remote operator
@@ -487,17 +668,20 @@ void loop(void) {
   
   if(current_time-last_rx >= 500) {
     digitalWrite(led_green, LOW);
-    forward(0, 0);
-    forward(1, 0);
-    AUTONOMOUS = false;
-    FOLLOW_HEADING = false;
+    if(!AUTONOMOUS) { EMERGENCY_STOP = true; // if we lose connection, stop the robot
+      EMERGENCY_STOP = true;
+      forward(0, 0);
+      forward(1, 0);
+    }
   } else {
     digitalWrite(led_green, HIGH);
+    if(!AUTONOMOUS) EMERGENCY_STOP = false;
   }
   
 
   // ---------------
 
+  
 
   
 }

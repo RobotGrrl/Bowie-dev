@@ -1,5 +1,10 @@
 void reverse(int motor, int val) {
 
+  if(EMERGENCY_STOP) {
+    emergencyStop();
+    return;
+  }
+
   if(motor == 0) { // left
 
     leftBork();
@@ -20,6 +25,11 @@ void reverse(int motor, int val) {
 }
 
 void forward(int motor, int val) {
+
+  if(EMERGENCY_STOP) {
+    emergencyStop();
+    return;
+  }
 
   if(motor == 0) { // left
 
@@ -46,6 +56,17 @@ void forward(int motor, int val) {
     
   }
 
+}
+
+
+void emergencyStop() {
+  leftBork();
+  digitalWrite(superbright_l, HIGH);
+  motor_setDir(0, MOTOR_DIR_FWD);
+  motor_setSpeed(0, 0);
+  digitalWrite(superbright_r, HIGH);
+  motor_setDir(1, MOTOR_DIR_FWD);
+  motor_setSpeed(1, 0); 
 }
 
 
